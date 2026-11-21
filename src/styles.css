@@ -91,7 +91,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .top-action { height: 38px; padding: 0 11px; }
 .top-avatar { width: 34px; height: 34px; margin-left: 3px; }
 .content-area { max-width: 1440px; padding: 34px 38px 58px; margin: 0 auto; }
-.welcome-row { min-height: 208px; padding: 34px 42px; background: linear-gradient(112deg, #e2f1fc 0%, #e9f5fd 58%, #f9f8ef 100%); border: 1px solid #dbeaf5; border-radius: 20px; display: flex; justify-content: space-between; align-items: center; overflow: hidden; position: relative; }
+.welcome-row { min-height: 208px; padding: 34px 42px; background: linear-gradient(112deg, #e2f1fc 0%, #e9f5fd 58%, #FCFAF5 100%); border: 1px solid #dbeaf5; border-radius: 20px; display: flex; justify-content: space-between; align-items: center; overflow: hidden; position: relative; }
 .green-eyebrow { color: #3e6c94; }
 .welcome-row h1 { margin: 14px 0 8px; font-size: clamp(30px, 3.3vw, 42px); line-height: 1.18; letter-spacing: -2px; font-weight: 800; }
 .welcome-row h1 em { color: #1a5a93; font-style: normal; }
@@ -110,7 +110,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .stat-icon { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; flex: 0 0 38px; }
 .stat-icon.green { color: #165288; background: #e2f1fc; }
 .stat-icon.blue { color: #527b9a; background: #edf4f8; }
-.stat-icon.gold { color: #a17c39; background: #faf3e5; }
+.stat-icon.gold { color: #a17c39; background: #F7F2E7; }
 .stat-icon.lavender { color: #7b6c9c; background: #f2eff8; }
 .stat-copy { display: flex; flex-direction: column; min-width: 0; }
 .stat-copy span { color: #7f8a93; font-size: 11px; }
@@ -135,9 +135,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .progress-track { height: 7px; background: #e9f1f6; border-radius: 10px; overflow: hidden; }
 .progress-track span { display: block; height: 100%; background: #4c7fa8; border-radius: inherit; transition: width .2s; }
 .continue-info .button { margin-top: 15px; }
-.quick-card { min-height: 250px; border-radius: 16px; padding: 22px; background: #f8f5eb; border: 1px solid #eee8d8; position: relative; overflow: hidden; }
+.quick-card { min-height: 250px; border-radius: 16px; padding: 22px; background: #FCFAF5; border: 1px solid #F1EDE4; position: relative; overflow: hidden; }
 .quick-card:after { content: "10"; position: absolute; right: 10px; bottom: -35px; color: rgba(166,142,84,.08); font-size: 150px; font-weight: 800; line-height: 1; }
-.quick-icon { width: 38px; height: 38px; border-radius: 12px; background: #f0e8d2; color: #a07a36; display: grid; place-items: center; margin-bottom: 15px; }
+.quick-icon { width: 38px; height: 38px; border-radius: 12px; background: #F7F2E7; color: #a07a36; display: grid; place-items: center; margin-bottom: 15px; }
 .quick-card .eyebrow { color: #a28a58; }
 .quick-card h3 { margin: 8px 0; font-size: 19px; line-height: 1.4; letter-spacing: -.6px; }
 .quick-card p { color: #93896f; font-size: 11px; margin: 0 0 15px; }
@@ -235,8 +235,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .answer-button span { display: flex; flex-direction: column; text-align: left; gap: 2px; }
 .answer-button strong { font-size: 12px; }
 .answer-button small { font-size: 9px; opacity: .7; }
-.answer-review { background: #fffaf1; color: #9a793f; border-color: #f0e6cf; }
-.answer-review:hover { background: #fbf2df; }
+.answer-review { background: #FCFAF5; color: #9a793f; border-color: #F1EDE4; }
+.answer-review:hover { background: #F7F2E7; }
 .answer-known { background: #e7f3fd; color: #1e5585; border-color: #cae4f8; }
 .answer-known:hover { background: #d7ecfc; }
 .study-footnote { display: flex; align-items: center; justify-content: center; gap: 5px; color: #97a1a9; font-size: 9px; margin-top: 18px; }
@@ -515,3 +515,33 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .art-tone-1{background:linear-gradient(125deg,#6bb4d9,#3f8ab5)}
 .art-tone-2{background:linear-gradient(125deg,#8ea6e6,#5f79c6)}
 .art-tone-3{background:linear-gradient(125deg,#8aa3bd,#5f7a98)}
+
+/* 필기장: 길게 눌러도 글자 선택/복사/붙여넣기 메뉴를 띄우지 않기 */
+.scratchpad, .scratchpad * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.scratchpad-canvas {
+  touch-action: none;
+  overscroll-behavior: contain;
+  -webkit-touch-callout: none;
+}
+/* 확대 중이거나 필기 중일 때 외부 화면 위에 투명 차단막 */
+.scratchpad-interaction-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 34;
+  pointer-events: auto;
+  touch-action: none;
+  overscroll-behavior: none;
+  background: transparent;
+}
+/* 필기장은 차단막 위에서 계속 조작할 수 있음 */
+.scratchpad-writing:not(.scratchpad-expanded) {
+  position: relative;
+  z-index: 35;
+}
+.scratchpad-expanded {
+  z-index: 35;
+}

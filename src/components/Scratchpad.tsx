@@ -12,18 +12,99 @@ let penDetected = false;
 // Keep stroke coordinates in logical CSS pixels so the image stays sharp when resized.
 export function Scratchpad() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const padRef = useRef<HTMLElement | null>(null);
   const strokesRef = useRef<Stroke[]>([]);
   const activeRef = useRef<Stroke | null>(null);
   const modeRef = useRef<"pen" | "eraser">("pen");
   const pointerIdRef = useRef<number | null>(null);
   const pointerTypeRef = useRef<string>("");
   const penFirstRef = useRef(true);
+  const blockedPointersRef = useRef(new Set<number>());
+  const blockedClickUntilRef = useRef(0);
   const [strokeCount, setStrokeCount] = useState(0);
   const [mode, setMode] = useState<"pen" | "eraser">("pen");
   const [paper, setPaper] = useState<Paper>("grid");
   const [expanded, setExpanded] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [penFirst, setPenFirst] = useState(true);
+  const [writing, setWriting] = useState(false);
+
+  // 확대 중 또는 실제 필기 중에는 필기장 바깥의 터치·클릭·스크롤을 차단해요.
+  // 포인터 ID는 ref에서 즉시 확인하므로 첫 획을 그리는 순간부터 적용돼요.
+  useEffect(() => {
+    const insidePad = (target: EventTarget | null) =>
+      target instanceof Node && !!padRef.current?.contains(target);
+    const isLocked = () =>
+      expanded || pointerIdRef.current !== null || blockedPointersRef.current.size > 0;
+
+    const blockOutside = (event: Event) => {
+      const pointer = event as PointerEvent;
+      const pointerId = typeof pointer.pointerId === "number" ? pointer.pointerId : null;
+      const blockedPointer = pointerId !== null && blockedPointersRef.current.has(pointerId);
+      const background = !insidePad(event.target);
+      const suppressClick = event.type === "click" && Date.now() < blockedClickUntilRef.current;
+
+      if (event.type === "selectstart" || event.type === "contextmenu") {
+        if (insidePad(event.target)) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      }
+
+      // 바깥에서 시작한 다른 손가락이 필기장 안에서 끝나더라도 차단을 해제해야 해요.
+      if (!background && !blockedPointer) return;
+      if (!isLocked() && !blockedPointer && !suppressClick) return;
+
+      if (event.type === "pointerdown" && pointerId !== null && background) {
+        blockedPointersRef.current.add(pointerId);
+      }
+      if (event.type === "pointerup" || event.type === "pointercancel") {
+        if (blockedPointer) {
+          blockedPointersRef.current.delete(pointerId!);
+          blockedClickUntilRef.current = Date.now() + 350;
+        }
+      }
+      if (event.cancelable) event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+
+    const blockKeyboard = (event: KeyboardEvent) => {
+      if (!isLocked()) return;
+      if (event.key === "Escape" && expanded) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setExpanded(false);
+        return;
+      }
+      const textShortcut = (event.ctrlKey || event.metaKey) &&
+        ["a", "c", "v", "x"].includes(event.key.toLowerCase());
+      if (insidePad(event.target) && !textShortcut) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+
+    const events = [
+      "pointerdown", "pointermove", "pointerup", "pointercancel",
+      "mousedown", "mousemove", "mouseup", "click", "dblclick",
+      "touchstart", "touchmove", "touchend", "touchcancel",
+      "wheel", "contextmenu", "selectstart", "dragstart",
+    ];
+    const options: AddEventListenerOptions = { capture: true, passive: false };
+    for (const name of events) document.addEventListener(name, blockOutside, options);
+    window.addEventListener("keydown", blockKeyboard, true);
+    return () => {
+      for (const name of events) document.removeEventListener(name, blockOutside, true);
+      window.removeEventListener("keydown", blockKeyboard, true);
+    };
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [expanded]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -99,13 +180,19 @@ export function Scratchpad() {
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    event.preventDefault();
     if (event.pointerType === "pen") penDetected = true;
     // 펜을 쓴 뒤에는 손가락·손바닥 터치 무시
     if (penFirstRef.current && penDetected && event.pointerType === "touch") return;
     // 손바닥이 먼저 닿아 있었다면 펜이 우선: 손바닥 획을 버리고 펜으로 전환
     if (event.pointerType === "pen" && pointerIdRef.current !== null && pointerTypeRef.current === "touch") {
+      const previousPointerId = pointerIdRef.current;
+      if (event.currentTarget.hasPointerCapture(previousPointerId)) {
+        event.currentTarget.releasePointerCapture(previousPointerId);
+      }
       activeRef.current = null;
       pointerIdRef.current = null;
+      pointerTypeRef.current = "";
       draw();
     }
     // 쓰는 중 다른 터치 무시
@@ -113,6 +200,7 @@ export function Scratchpad() {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     pointerIdRef.current = event.pointerId;
     pointerTypeRef.current = event.pointerType;
+    setWriting(true);
     event.currentTarget.setPointerCapture(event.pointerId);
     if (modeRef.current === "eraser") { eraseAt(getPoint(event)); return; }
     activeRef.current = { mode: "pen", points: [getPoint(event)] };
@@ -121,6 +209,7 @@ export function Scratchpad() {
   const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (event.pointerType === "pen") penDetected = true; // 호버만 해도 펜 감지
     if (event.pointerId !== pointerIdRef.current) return;
+    event.preventDefault();
     if (modeRef.current === "eraser") {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) eraseAt(getPoint(event));
       return;
@@ -131,13 +220,27 @@ export function Scratchpad() {
   };
   const onPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (event.pointerId !== pointerIdRef.current) return;
+    event.preventDefault();
     pointerIdRef.current = null;
+    pointerTypeRef.current = "";
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setWriting(false);
     if (modeRef.current === "eraser") return;
     if (!activeRef.current) return;
     activeRef.current.points.push(getPoint(event));
     strokesRef.current.push(activeRef.current);
     activeRef.current = null;
     setStrokeCount(strokesRef.current.length);
+    draw();
+  };
+  const onPointerCancel = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerId !== pointerIdRef.current) return;
+    pointerIdRef.current = null;
+    pointerTypeRef.current = "";
+    activeRef.current = null;
+    setWriting(false);
     draw();
   };
   const undo = () => {
@@ -171,54 +274,59 @@ export function Scratchpad() {
   }
 
   return (
-    <section className={`scratchpad panel ${expanded ? "scratchpad-expanded" : ""}`} aria-label="자유 필기장">
-      <header className="scratchpad-header">
-        <div>
-          <span className="eyebrow">SCRATCHPAD</span>
-          <h3>자유 필기장</h3>
+    <>
+      {(expanded || writing) && <div className="scratchpad-interaction-backdrop" aria-hidden="true" />}
+      <section ref={padRef} className={`scratchpad panel ${expanded ? "scratchpad-expanded" : ""} ${writing ? "scratchpad-writing" : ""}`} aria-label="자유 필기장">
+        <header className="scratchpad-header">
+          <div>
+            <span className="eyebrow">SCRATCHPAD</span>
+            <h3>자유 필기장</h3>
+          </div>
+          <div className="scratchpad-header-actions">
+            <span className="scratchpad-unsaved">저장 안 함</span>
+            <button className="icon-button" onClick={() => setExpanded((value) => !value)} title={expanded ? "크기 축소" : "필기장 확대"} aria-label={expanded ? "크기 축소" : "필기장 확대"}>
+              {expanded ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+            </button>
+            <button className="icon-button" onClick={() => { setCollapsed(true); setExpanded(false); }} title="필기장 접기" aria-label="필기장 접기"><X size={17} /></button>
+          </div>
+        </header>
+        <div className="scratchpad-tools">
+          <div className="scratchpad-tool-row">
+            <button className={`scratchpad-tool ${mode === "pen" ? "active" : ""}`} onClick={() => chooseMode("pen")} aria-pressed={mode === "pen"}><PenLine size={15} /> 펜</button>
+            <button className={`scratchpad-tool ${mode === "eraser" ? "active" : ""}`} onClick={() => chooseMode("eraser")} aria-pressed={mode === "eraser"}><Eraser size={15} /> 획 지우개</button>
+            <button className="scratchpad-tool" onClick={undo} disabled={!strokeCount}><Undo2 size={15} /> 한 획 취소</button>
+            <button className={`scratchpad-tool ${penFirst ? "active" : ""}`} onClick={togglePenFirst} aria-pressed={penFirst} title="펜을 쓰면 손가락·손바닥 터치를 무시해요">✍ 펜 우선</button>
+          </div>
+          <div className="scratchpad-tool-row">
+            <label className="scratchpad-paper-select">
+              <span>연습장</span>
+              <select value={paper} onChange={(event) => setPaper(event.target.value as Paper)}>
+                <option value="grid">모눈</option>
+                <option value="lines">줄 노트</option>
+                <option value="blank">무지</option>
+              </select>
+            </label>
+            <button className="scratchpad-tool scratchpad-clear" onClick={clear} disabled={!strokeCount}><Trash2 size={15} /> 모두 지우기</button>
+          </div>
         </div>
-        <div className="scratchpad-header-actions">
-          <span className="scratchpad-unsaved">저장 안 함</span>
-          <button className="icon-button" onClick={() => setExpanded((value) => !value)} title={expanded ? "크기 축소" : "필기장 확대"} aria-label={expanded ? "크기 축소" : "필기장 확대"}>
-            {expanded ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
-          </button>
-          <button className="icon-button" onClick={() => { setCollapsed(true); setExpanded(false); }} title="필기장 접기" aria-label="필기장 접기"><X size={17} /></button>
+        <div className={`scratchpad-paper paper-${paper}`}>
+          {strokeCount === 0 && !activeRef.current && <div className="scratchpad-placeholder">여기에 직접 적어 보세요 <small>Apple Pencil · 손가락 · 마우스</small></div>}
+          <canvas
+            ref={canvasRef}
+            className="scratchpad-canvas"
+            aria-label="쓰기 연습 필기 영역"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerCancel}
+            onLostPointerCapture={onPointerCancel}
+            onContextMenu={(event) => event.preventDefault()}
+            onDragStart={(event) => event.preventDefault()}
+          />
         </div>
-      </header>
-      <div className="scratchpad-tools">
-        <div className="scratchpad-tool-row">
-          <button className={`scratchpad-tool ${mode === "pen" ? "active" : ""}`} onClick={() => chooseMode("pen")} aria-pressed={mode === "pen"}><PenLine size={15} /> 펜</button>
-          <button className={`scratchpad-tool ${mode === "eraser" ? "active" : ""}`} onClick={() => chooseMode("eraser")} aria-pressed={mode === "eraser"}><Eraser size={15} /> 획 지우개</button>
-          <button className="scratchpad-tool" onClick={undo} disabled={!strokeCount}><Undo2 size={15} /> 한 획 취소</button>
-          <button className={`scratchpad-tool ${penFirst ? "active" : ""}`} onClick={togglePenFirst} aria-pressed={penFirst} title="펜을 쓰면 손가락·손바닥 터치를 무시해요">✍ 펜 우선</button>
-        </div>
-        <div className="scratchpad-tool-row">
-          <label className="scratchpad-paper-select">
-            <span>연습장</span>
-            <select value={paper} onChange={(event) => setPaper(event.target.value as Paper)}>
-              <option value="grid">모눈</option>
-              <option value="lines">줄 노트</option>
-              <option value="blank">무지</option>
-            </select>
-          </label>
-          <button className="scratchpad-tool scratchpad-clear" onClick={clear} disabled={!strokeCount}><Trash2 size={15} /> 모두 지우기</button>
-        </div>
-      </div>
-      <div className={`scratchpad-paper paper-${paper}`}>
-        {strokeCount === 0 && !activeRef.current && <div className="scratchpad-placeholder">여기에 직접 적어 보세요 <small>Apple Pencil · 손가락 · 마우스</small></div>}
-        <canvas
-          ref={canvasRef}
-          className="scratchpad-canvas"
-          aria-label="쓰기 연습 필기 영역"
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-          onContextMenu={(event) => event.preventDefault()}
-        />
-      </div>
-      <footer className="scratchpad-footer"><span>다음 카드로 넘어가면 필기가 지워져요.</span><span>{strokeCount}획</span></footer>
-    </section>
+        <footer className="scratchpad-footer"><span>다음 카드로 넘어가면 필기가 지워져요.</span><span>{strokeCount}획</span></footer>
+      </section>
+    </>
   );
 }
 
