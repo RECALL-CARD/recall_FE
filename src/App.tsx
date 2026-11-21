@@ -74,6 +74,7 @@ function App() {
   const [csvImportScope, setCsvImportScope] = useState<"current"|"structure">("current");
   // 읽는 법(발음)은 뜻(flipped)과 따로 보여요
   const [showReading, setShowReading] = useState(false);
+  const [showInlineMeaning, setShowInlineMeaning] = useState(false);
   // 탭이 숨겨져서 "자동으로" 멈춘 경우에만 true → 돌아오면 자동 재개
   const autoPausedRef = useRef(false);
 
@@ -91,6 +92,7 @@ function App() {
   // 카드가 바뀔 때마다(답 분류·섞기·재시작 등) 읽는 법은 다시 가려요
   useEffect(() => {
     setShowReading(false);
+    setShowInlineMeaning(false);
   }, [padResetKey]);
 
   useEffect(() => {
@@ -691,16 +693,17 @@ function App() {
         </div>
 
         <div className={`flashcard-wrap ${flipped ? "is-flipped" : ""}`}>
-          <button className="flashcard" onClick={() => setFlipped((value) => !value)} aria-label="카드 뒤집기">
+          <button className="flashcard" onClick={() => setShowInlineMeaning((value) => !value)} aria-label={showInlineMeaning ? "한자 아래 뜻 가리기" : "한자 아래 뜻 보기"} aria-expanded={showInlineMeaning}>
             <div className="flashcard-top">
               <span>{flipped ? "ANSWER" : "QUESTION"}</span>
-              <span className="flashcard-hint">카드를 눌러 뒤집기 <span>↗</span></span>
+              <span className="flashcard-hint">카드를 눌러 뜻 {showInlineMeaning ? "가리기" : "보기"} <span>↗</span></span>
             </div>
             <div className="flashcard-content">
               {!flipped ? (
                 <>
                   <span className="flashcard-kicker">JAPANESE WORD</span>
                   <strong className="flashcard-front">{currentCard.front}</strong>
+                  {showInlineMeaning && <span className="flashcard-inline-meaning">{currentCard.back}</span>}
                   <span className="flashcard-reading">{showReading ? (currentCard.reading || "(읽는 법 없음)") : "읽는 법과 뜻을 떠올려 보세요"}</span>
                 </>
               ) : (
@@ -761,12 +764,15 @@ function App() {
         </div>
         {/* 필기장을 확대했을 때만 보이는 단어 배너 (CSS :has 로 제어) */}
         <div className="study-word-banner">
-          <strong>{currentCard.front}</strong>
+          <button type="button" className="study-word-title" aria-expanded={showInlineMeaning} onClick={() => setShowInlineMeaning((value) => !value)}>
+            <strong>{currentCard.front}</strong>
+            {showInlineMeaning && <span className="study-word-inline-meaning">{currentCard.back}</span>}
+          </button>
           <button type="button" className={showReading ? "shown" : ""} onClick={() => setShowReading((value) => !value)}>
             <small>읽는 법</small>{showReading ? (currentCard.reading || "(없음)") : "눌러서 보기"}
           </button>
-          <button type="button" className={flipped ? "shown" : ""} onClick={() => setFlipped((value) => !value)}>
-            <small>뜻</small>{flipped ? currentCard.back : "눌러서 보기"}
+          <button type="button" className={showInlineMeaning ? "shown" : ""} onClick={() => setShowInlineMeaning((value) => !value)}>
+            <small>뜻</small>{showInlineMeaning ? "가리기" : "눌러서 보기"}
           </button>
         </div>
         <Scratchpad key={padResetKey} />

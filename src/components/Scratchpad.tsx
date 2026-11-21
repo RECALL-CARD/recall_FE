@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { Eraser, Maximize2, Minimize2, PenLine, Trash2, Undo2, X } from "lucide-react";
+import { Eraser, Maximize2, Minimize2, PenLine, Trash2, Undo2 } from "lucide-react";
 
+// Store coordinates as 0..1 ratios, matching the original HTML canvas.
 type Point = { x: number; y: number };
-type Stroke = { points: Point[]; mode: "pen" | "eraser" };
+type Stroke = { points: Point[]; mode: "pen" | "eraser"; color: string; size: number };
+const PEN_COLORS = ["#000000", "#2563eb", "#dc2626", "#16a34a", "#e4c3e2ff", "#b6cdeeff"] as const;
 type Paper = "grid" | "lines" | "blank";
-
-// 카드가 바뀌어 컴포넌트가 다시 만들어져도 "펜을 썼다"는 사실은 유지해요.
-let penDetected = false;
 
 // Keep stroke coordinates in logical CSS pixels so the image stays sharp when resized.
 export function Scratchpad() {
@@ -19,21 +18,27 @@ export function Scratchpad() {
   const pointerIdRef = useRef<number | null>(null);
   const pointerTypeRef = useRef<string>("");
   const penFirstRef = useRef(true);
+  const penColorRef = useRef<string>("#000000");
+  const penSizeRef = useRef(3.4);
   const blockedPointersRef = useRef(new Set<number>());
   const blockedClickUntilRef = useRef(0);
   const [strokeCount, setStrokeCount] = useState(0);
   const [mode, setMode] = useState<"pen" | "eraser">("pen");
   const [paper, setPaper] = useState<Paper>("grid");
   const [expanded, setExpanded] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
   const [penFirst, setPenFirst] = useState(true);
+  const [penColor, setPenColor] = useState<string>("#000000");
+  const [penSize, setPenSize] = useState(3.4);
   const [writing, setWriting] = useState(false);
 
   // 확대 중 또는 실제 필기 중에는 필기장 바깥의 터치·클릭·스크롤을 차단해요.
   // 포인터 ID는 ref에서 즉시 확인하므로 첫 획을 그리는 순간부터 적용돼요.
   useEffect(() => {
     const insidePad = (target: EventTarget | null) =>
-      target instanceof Node && !!padRef.current?.contains(target);
+      target instanceof Node && (
+        !!padRef.current?.contains(target) ||
+        (expanded && target instanceof Element && !!target.closest(".study-word-banner"))
+      );
     const isLocked = () =>
       expanded || pointerIdRef.current !== null || blockedPointersRef.current.size > 0;
 
@@ -127,21 +132,21 @@ export function Scratchpad() {
     for (const stroke of [...strokesRef.current, ...(activeRef.current ? [activeRef.current] : [])]) {
       ctx.save();
       ctx.globalCompositeOperation = stroke.mode === "eraser" ? "destination-out" : "source-over";
-      ctx.strokeStyle = "#294f3b";
-      ctx.fillStyle = "#294f3b";
-      ctx.lineWidth = stroke.mode === "eraser" ? 24 : 3.4;
+      ctx.strokeStyle = stroke.color;
+      ctx.fillStyle = stroke.color;
+      ctx.lineWidth = stroke.mode === "eraser" ? 24 : stroke.size;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       if (stroke.points.length === 1) {
         const dot = stroke.points[0];
         ctx.beginPath();
-        ctx.arc(dot.x, dot.y, ctx.lineWidth / 2, 0, Math.PI * 2);
+        ctx.arc(dot.x * rect.width, dot.y * rect.height, ctx.lineWidth / 2, 0, Math.PI * 2);
         ctx.fill();
       } else if (stroke.points.length > 1) {
         ctx.beginPath();
-        ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+        ctx.moveTo(stroke.points[0].x * rect.width, stroke.points[0].y * rect.height);
         for (let i = 1; i < stroke.points.length; i++) {
-          ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+          ctx.lineTo(stroke.points[i].x * rect.width, stroke.points[i].y * rect.height);
         }
         ctx.stroke();
       }
@@ -150,27 +155,42 @@ export function Scratchpad() {
   }, []);
 
   useEffect(() => {
-    if (collapsed) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const observer = new ResizeObserver(() => draw());
     observer.observe(canvas);
     draw();
     return () => observer.disconnect();
-  }, [collapsed, expanded, draw]);
+  }, [expanded, draw]);
 
   const getPoint = (event: ReactPointerEvent<HTMLCanvasElement>): Point => {
     const rect = event.currentTarget.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    return { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) };
+  };
+
+  // The original HTML gathered coalesced pointer samples for smooth fast handwriting.
+  const getMovePoints = (event: ReactPointerEvent<HTMLCanvasElement>): Point[] => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const native = event.nativeEvent;
+    const samples = typeof native.getCoalescedEvents === "function"
+      ? native.getCoalescedEvents()
+      : [];
+    const events = samples.length ? samples : [native];
+    return events.map(sample => ({
+      x: Math.max(0, Math.min(1, (sample.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (sample.clientY - rect.top) / rect.height)),
+    }));
   };
 
   const eraseAt = (point: Point) => {
     const radius = 18;
     const remaining = strokesRef.current.filter(stroke => !stroke.points.some((next,index) => {
       const previous = stroke.points[Math.max(0,index-1)];
-      const dx = next.x-previous.x, dy = next.y-previous.y;
-      const t = Math.max(0, Math.min(1, ((point.x-previous.x)*dx+(point.y-previous.y)*dy)/(dx*dx+dy*dy||1)));
-      return Math.hypot(point.x-(previous.x+t*dx),point.y-(previous.y+t*dy)) < radius;
+      const rect = canvasRef.current?.getBoundingClientRect();
+      const w = rect?.width ?? 1, h = rect?.height ?? 1;
+      const dx = (next.x-previous.x)*w, dy = (next.y-previous.y)*h;
+      const t = Math.max(0, Math.min(1, (((point.x-previous.x)*w)*dx+((point.y-previous.y)*h)*dy)/(dx*dx+dy*dy||1)));
+      return Math.hypot((point.x-previous.x)*w-t*dx,(point.y-previous.y)*h-t*dy) < radius;
     }));
     if (remaining.length !== strokesRef.current.length) {
       strokesRef.current = remaining;
@@ -181,9 +201,8 @@ export function Scratchpad() {
 
   const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     event.preventDefault();
-    if (event.pointerType === "pen") penDetected = true;
-    // 펜을 쓴 뒤에는 손가락·손바닥 터치 무시
-    if (penFirstRef.current && penDetected && event.pointerType === "touch") return;
+    // 펜을 실제 사용 중일 때만 손바닥 터치 무시 (나중에는 손가락 필기 가능)
+    if (penFirstRef.current && pointerTypeRef.current === "pen" && event.pointerType === "touch") return;
     // 손바닥이 먼저 닿아 있었다면 펜이 우선: 손바닥 획을 버리고 펜으로 전환
     if (event.pointerType === "pen" && pointerIdRef.current !== null && pointerTypeRef.current === "touch") {
       const previousPointerId = pointerIdRef.current;
@@ -203,11 +222,12 @@ export function Scratchpad() {
     setWriting(true);
     event.currentTarget.setPointerCapture(event.pointerId);
     if (modeRef.current === "eraser") { eraseAt(getPoint(event)); return; }
-    activeRef.current = { mode: "pen", points: [getPoint(event)] };
+    // 색과 굵기를 획마다 저장하므로 기존 필기는 설정 변경 후에도 그대로 유지돼요.
+    activeRef.current = { mode: "pen", points: [getPoint(event)], color: penColorRef.current, size: penSizeRef.current };
     draw();
   };
   const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (event.pointerType === "pen") penDetected = true; // 호버만 해도 펜 감지
+    // Hover alone must not disable finger writing.
     if (event.pointerId !== pointerIdRef.current) return;
     event.preventDefault();
     if (modeRef.current === "eraser") {
@@ -215,7 +235,7 @@ export function Scratchpad() {
       return;
     }
     if (!activeRef.current) return;
-    activeRef.current.points.push(getPoint(event));
+    activeRef.current.points.push(...getMovePoints(event));
     draw();
   };
   const onPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -258,25 +278,25 @@ export function Scratchpad() {
     modeRef.current = next;
     setMode(next);
   };
+  const chooseColor = (next: string) => {
+    penColorRef.current = next;
+    setPenColor(next);
+    chooseMode("pen");
+  };
+  const chooseSize = (next: number) => {
+    penSizeRef.current = next;
+    setPenSize(next);
+  };
   const togglePenFirst = () => {
     const next = !penFirst;
     penFirstRef.current = next;
     setPenFirst(next);
   };
 
-  if (collapsed) {
-    return (
-      <div className="scratchpad-collapsed panel">
-        <span><PenLine size={16} /> 자유 필기장</span>
-        <button className="button button-outline" onClick={() => setCollapsed(false)}>펼치기</button>
-      </div>
-    );
-  }
-
   return (
     <>
       {(expanded || writing) && <div className="scratchpad-interaction-backdrop" aria-hidden="true" />}
-      <section ref={padRef} className={`scratchpad panel ${expanded ? "scratchpad-expanded" : ""} ${writing ? "scratchpad-writing" : ""}`} aria-label="자유 필기장">
+      <section ref={padRef} className={`scratchpad panel ${expanded ? "scratchpad-expanded" : ""} ${writing ? "scratchpad-writing" : ""}`} aria-label="자유 필기장" onContextMenu={event => event.preventDefault()}>
         <header className="scratchpad-header">
           <div>
             <span className="eyebrow">SCRATCHPAD</span>
@@ -287,7 +307,6 @@ export function Scratchpad() {
             <button className="icon-button" onClick={() => setExpanded((value) => !value)} title={expanded ? "크기 축소" : "필기장 확대"} aria-label={expanded ? "크기 축소" : "필기장 확대"}>
               {expanded ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
             </button>
-            <button className="icon-button" onClick={() => { setCollapsed(true); setExpanded(false); }} title="필기장 접기" aria-label="필기장 접기"><X size={17} /></button>
           </div>
         </header>
         <div className="scratchpad-tools">
@@ -308,6 +327,40 @@ export function Scratchpad() {
             </label>
             <button className="scratchpad-tool scratchpad-clear" onClick={clear} disabled={!strokeCount}><Trash2 size={15} /> 모두 지우기</button>
           </div>
+        </div>
+        <div className="scratchpad-pen-options" aria-label="펜 색상과 굵기 설정">
+          <div className="scratchpad-color-picker" role="group" aria-label="펜 색상">
+            <span>펜 색상</span>
+            {PEN_COLORS.map(color => (
+              <button
+                key={color}
+                type="button"
+                className={`scratchpad-color-swatch ${penColor === color ? "active" : ""}`}
+                style={{ backgroundColor: color }}
+                onClick={() => chooseColor(color)}
+                aria-label={`${color} 색상`}
+                aria-pressed={penColor === color}
+                title={color}
+              />
+            ))}
+            <label className="scratchpad-custom-color" title="다른 색 선택">
+              <span>직접 선택</span>
+              <input type="color" value={penColor} onChange={event => chooseColor(event.target.value)} aria-label="사용자 지정 펜 색상" />
+            </label>
+          </div>
+          <label className="scratchpad-size-picker">
+            <span>펜 굵기</span>
+            <input
+              type="range"
+              min="1"
+              max="12"
+              step="0.5"
+              value={penSize}
+              onChange={event => chooseSize(Number(event.target.value))}
+              aria-label="펜 굵기"
+            />
+            <strong>{penSize.toFixed(1)}px</strong>
+          </label>
         </div>
         <div className={`scratchpad-paper paper-${paper}`}>
           {strokeCount === 0 && !activeRef.current && <div className="scratchpad-placeholder">여기에 직접 적어 보세요 <small>Apple Pencil · 손가락 · 마우스</small></div>}
