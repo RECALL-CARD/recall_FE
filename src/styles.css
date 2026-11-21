@@ -430,7 +430,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .scratchpad-clear { margin-left: auto; }
 .scratchpad-paper-select { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; color: #828e97; }
 .scratchpad-paper-select select { border: 1px solid #dae7f1; border-radius: 8px; min-height: 31px; background: #ffffff; color: #4b6478; padding: 0 8px; font-size: 10px; }
-.scratchpad-paper { height: 390px; width: 100%; position: relative; background-color: #ffffff; }
+.scratchpad-paper { height: 520px; width: 100%; position: relative; background-color: #ffffff; }
 .scratchpad-paper.paper-grid { background-image: linear-gradient(to right, #e3eff7 1px, transparent 1px), linear-gradient(to bottom, #e3eff7 1px, transparent 1px); background-size: 25px 25px; }
 .scratchpad-paper.paper-lines { background-image: repeating-linear-gradient(to bottom, transparent, transparent 31px, #e3eff7 31px, #e3eff7 32px); }
 .scratchpad-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
@@ -447,12 +447,12 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 @media (max-width: 900px) {
   .study-page { grid-template-columns: 1fr; max-width: 790px; }
-  .scratchpad-paper { height: 320px; }
+  .scratchpad-paper { height: 440px; }
   .scratchpad-expanded { inset: 4vh 4vw; }
 }
 @media (max-width: 600px) {
   .scratchpad-header { min-height: 60px; }
-  .scratchpad-paper { height: 290px; }
+  .scratchpad-paper { height: 400px; }
 }
 
 /* Original Recall Card feature-parity controls */
@@ -545,3 +545,87 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .scratchpad-expanded {
   z-index: 35;
 }
+
+/* General app UI is not selectable by long press; form fields remain editable. */
+html, body, #root, #root * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+input, textarea, [contenteditable="true"] {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default;
+}
+
+
+/* 필기장 펜 색상 및 굵기 선택 — 기존 스타일은 그대로 유지 */
+.scratchpad-pen-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+.scratchpad-color-picker,
+.scratchpad-size-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 11px; color: #4b6478; }
+.scratchpad-color-swatch {
+  width: 25px; height: 25px; border-radius: 50%;
+  border: 2px solid #fff; outline: 1px solid #cbd5e1;
+  cursor: pointer; flex-shrink: 0;
+}
+.scratchpad-color-swatch.active { outline: 2px solid #2563eb; outline-offset: 2px; }
+.scratchpad-custom-color { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; cursor: pointer; }
+.scratchpad-custom-color input { width: 28px; height: 28px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.scratchpad-size-picker input[type="range"] { width: 115px; accent-color: #2563eb; touch-action: pan-x; }
+.scratchpad-size-picker strong { min-width: 38px; font-size: 11px; color: #172b4d; font-variant-numeric: tabular-nums; }
+
+/* 필기장 내부를 길게 눌러도 글자 선택과 복사 호출을 방지 */
+.scratchpad,
+.scratchpad :not(input):not(textarea):not(select) {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+.scratchpad-canvas {
+  touch-action: none;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+/* Inline meaning under the kanji, without flipping the card. */
+.flashcard-inline-meaning {
+  display: block;
+  margin-top: 12px;
+  color: #1d4f82;
+  font-size: clamp(16px, 2.2vw, 24px);
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+/* The expanded word title is an interactive button, above the handwriting lock. */
+.study-word-banner .study-word-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1;
+  gap: 5px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.study-word-banner .study-word-title strong {
+  white-space: normal;
+}
+.study-word-banner .study-word-inline-meaning {
+  color: #1d4f82;
+  font-size: clamp(14px, 2vw, 20px);
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+.study-word-banner { pointer-events: auto; }
