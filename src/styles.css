@@ -413,3 +413,82 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .deck-progress-row strong { font-size: 9px; }
   .toast { max-width: calc(100vw - 80px); white-space: normal; text-align: center; }
 }
+
+/* Handwriting scratchpad restored beside the study card */
+.study-page { max-width: 1320px; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(340px, .92fr); gap: 20px; align-items: start; }
+.study-main-column { min-width: 0; }
+.scratchpad { min-width: 0; overflow: hidden; }
+.scratchpad-header { min-height: 72px; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 15px 17px; border-bottom: 1px solid var(--line); }
+.scratchpad-header h3 { font-size: 15px; margin: 4px 0 0; }
+.scratchpad-header-actions { display: flex; align-items: center; gap: 2px; }
+.scratchpad-unsaved { font-size: 10px; color: #99a79c; margin-right: 6px; white-space: nowrap; }
+.scratchpad-tools { padding: 11px 13px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.scratchpad-tool-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.scratchpad-tool { display: inline-flex; align-items: center; gap: 5px; min-height: 31px; border: 1px solid #e2eae3; border-radius: 8px; padding: 6px 9px; background: #fff; color: #677c6e; font-size: 10px; font-weight: 700; }
+.scratchpad-tool.active { background: #e7f2e9; color: #236a48; border-color: #bad5c1; }
+.scratchpad-tool:hover:not(:disabled) { background: #f2f8f3; }
+.scratchpad-clear { margin-left: auto; }
+.scratchpad-paper-select { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; color: #85948a; }
+.scratchpad-paper-select select { border: 1px solid #e1eae3; border-radius: 8px; min-height: 31px; background: #fff; color: #52715d; padding: 0 8px; font-size: 10px; }
+.scratchpad-paper { height: 390px; width: 100%; position: relative; background-color: #fff; }
+.scratchpad-paper.paper-grid { background-image: linear-gradient(to right, #eaf1e9 1px, transparent 1px), linear-gradient(to bottom, #eaf1e9 1px, transparent 1px); background-size: 25px 25px; }
+.scratchpad-paper.paper-lines { background-image: repeating-linear-gradient(to bottom, transparent, transparent 31px, #eaf1e9 31px, #eaf1e9 32px); }
+.scratchpad-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+.scratchpad-placeholder { pointer-events: none; position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); white-space: nowrap; color: #b3c0b5; text-align: center; font-size: 11px; }
+.scratchpad-placeholder small { display: block; margin-top: 8px; font-size: 9px; }
+.scratchpad-footer { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 6px; border-top: 1px solid var(--line); color: #9aa79e; font-size: 9px; }
+.scratchpad-collapsed { min-height: 65px; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.scratchpad-collapsed span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; }
+.scratchpad-expanded { position: fixed; z-index: 35; inset: 7vh 7vw; display: flex; flex-direction: column; box-shadow: 0 0 0 100vmax rgba(24,44,29,.45), 0 20px 80px rgba(10,36,19,.2); }
+.scratchpad-expanded .scratchpad-paper { height: auto; min-height: 0; flex: 1; }
+@media (max-width: 1120px) {
+  .study-page { grid-template-columns: minmax(0,1fr) minmax(295px,.88fr); gap: 12px; }
+  .scratchpad-tool { font-size: 9px; padding: 6px; }
+}
+@media (max-width: 900px) {
+  .study-page { grid-template-columns: 1fr; max-width: 790px; }
+  .scratchpad-paper { height: 320px; }
+  .scratchpad-expanded { inset: 4vh 4vw; }
+}
+@media (max-width: 600px) {
+  .scratchpad-header { min-height: 60px; }
+  .scratchpad-paper { height: 290px; }
+}
+
+/* Original Recall Card feature-parity controls */
+.library-create-actions,.csv-toolbar,.mini-actions,.study-management-actions,.kanji-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.csv-toolbar,.kanji-actions{margin:12px 0 16px}
+.csv-toolbar label{display:inline-flex;gap:8px;align-items:center;font-size:12px;color:#5c7665}
+.csv-toolbar select,.kanji-actions select,.deck-overview-actions select{background:#fff;border:1px solid #dce9df;border-radius:9px;padding:9px 10px;color:#315840;font-size:11px;max-width:240px}
+.deck-overview-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.folder-management{border-bottom:1px solid #edf2ee;padding:9px 10px 14px}
+.folder-management h4{font-size:11px;color:#869787;margin:8px}
+.folder-manager-row{display:flex;gap:5px;align-items:center;min-height:26px;font-size:9px;color:#688272}
+.folder-manager-row span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.folder-manager-row button,.card-inline-actions button{border:1px solid #e1e9e2;background:#fafdfa;border-radius:5px;color:#55715d;font-size:9px;padding:4px 6px}
+.card-edit-row{display:flex;border-bottom:1px solid #edf1ee;align-items:center}
+.card-edit-row>.card-row{flex:1;min-width:0;border-bottom:0}
+.card-inline-actions{display:flex;gap:4px;padding:0 10px}
+.study-page{max-width:1250px;display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,.85fr);gap:16px;align-items:start}
+.study-page .study-main-column{min-width:0}
+.study-timer-buttons{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.study-timer-buttons .button{font-size:10px;padding:7px 9px}
+.typing-panel-v2{border:1px solid #dae9dc;background:#fbfdfb;border-radius:12px;padding:13px;margin:13px 0}
+.typing-options{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:11px;color:#52725e;font-weight:650}
+.typing-options label{display:flex;align-items:center;gap:5px}
+.typing-options select,.typing-fields input,.typing-fields textarea{padding:8px;border:1px solid #d2e4d6;border-radius:8px;background:white;color:#315840;font-size:12px}
+.typing-fields{display:grid;gap:7px;margin:12px 0}
+.typing-fields textarea{resize:vertical}
+.quiz-result-v2{background:#eef6ee;white-space:pre-wrap;line-height:1.7;padding:11px;border-radius:8px;margin-top:10px;font-size:11px;color:#365e44}
+.study-management-actions{margin:13px 0}.study-management-actions .button{font-size:10px;padding:8px}
+.kanji-practice{display:flex;flex-direction:column;align-items:center;gap:12px;max-width:680px;padding:28px 20px;margin:0 auto 24px}
+.kanji-practice>strong{font-size:100px;line-height:1.4;color:#164932;font-weight:600}
+.kanji-practice>span,.kanji-practice>p{color:#789082;font-size:12px}
+.kanji-answer{background:#eef7ef;width:100%;padding:16px;border-radius:12px;color:#436c53;font-size:12px;line-height:1.9}
+.form-field select{padding:10px;border:1px solid #d9e5dc;border-radius:9px;background:#fff}
+@media(max-width:1100px){.study-page{grid-template-columns:1fr}.scratchpad{max-width:none}}
+@media(max-width:600px){.library-create-actions{justify-content:flex-start}.card-inline-actions{flex-direction:column;padding:0 6px}.study-management-actions .button{flex:1}.study-timer-buttons{justify-content:flex-end}.study-time{font-size:10px}}
+
+.legacy-reference-link{max-width:1440px;margin:8px auto -17px;padding:0 38px;text-align:right}.legacy-reference-link a{color:#819487;font-size:10px;text-decoration:underline}.legacy-reference-link a:hover{color:#267453}@media(max-width:600px){.legacy-reference-link{padding:0 12px;margin-bottom:-9px}}
+
+.study-history-panel{margin-top:16px;padding:20px}.study-history-panel h2{font-size:16px}.history-scroll{overflow-x:auto}.study-history-panel table{width:100%;border-collapse:collapse;min-width:600px;font-size:11px}.study-history-panel td,.study-history-panel th{border-bottom:1px solid #edf2ee;padding:10px;text-align:left}.study-history-panel th{background:#f0f7f1;color:#467859}.small-inline-button{background:transparent;color:#63856d;border:0;font-size:10px;padding:0}.collection-card-items{max-height:160px;overflow:auto;margin-bottom:12px}.collection-card-items>div{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:10px;border-bottom:1px solid #eff2ef;padding:5px}.collection-card-items button{border:none;background:none;color:#8d9c91}.collection-card-items span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
