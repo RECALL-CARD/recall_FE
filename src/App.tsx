@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   GraduationCap,
@@ -72,6 +72,10 @@ function App() {
   const [practiceReveal, setPracticeReveal] = useState(false);
   const [csvScope, setCsvScope] = useState<"current"|"all">("current");
   const [csvImportScope, setCsvImportScope] = useState<"current"|"structure">("current");
+  // 읽는 법(발음)은 뜻(flipped)과 따로 보여요
+  const [showReading, setShowReading] = useState(false);
+  // 탭이 숨겨져서 "자동으로" 멈춘 경우에만 true → 돌아오면 자동 재개
+  const autoPausedRef = useRef(false);
 
   const selectedDeck = appData.decks.find((deck) => deck.id === selectedDeckId) ?? appData.decks[0];
   const allCards = useMemo(() => appData.decks.flatMap((deck) => deck.cards), [appData.decks]);
@@ -84,6 +88,11 @@ function App() {
     saveAppData(appData);
   }, [appData]);
 
+  // 카드가 바뀔 때마다(답 분류·섞기·재시작 등) 읽는 법은 다시 가려요
+  useEffect(() => {
+    setShowReading(false);
+  }, [padResetKey]);
+
   useEffect(() => {
     if (page !== "study" || !timerRunning || document.hidden || studyQueue.length === 0) return;
     const timer = window.setInterval(() => setElapsedSeconds((seconds) => seconds + 1), 1000);
@@ -91,11 +100,21 @@ function App() {
   }, [page, studyQueue.length, timerRunning]);
 
   useEffect(() => {
-    if(page!=="study"||!timerRunning)return;
-    const onHide=()=>{if(document.hidden)setTimerRunning(false);};
-    document.addEventListener("visibilitychange",onHide);
-    return()=>document.removeEventListener("visibilitychange",onHide);
-  },[page,timerRunning]);
+    if (page !== "study") return;
+    const onVisibility = () => {
+      if (document.hidden) {
+        if (timerRunning) {
+          autoPausedRef.current = true;
+          setTimerRunning(false);
+        }
+      } else if (autoPausedRef.current) {
+        autoPausedRef.current = false;
+        setTimerRunning(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [page, timerRunning]);
 
   useEffect(() => {
     if (!toast) return;
@@ -156,7 +175,10 @@ function App() {
     setTypingTarget(deck?.typingSettings?.target ?? "reading");
     setRomajiEnabled(deck?.typingSettings?.allowRomaji ?? true);
     setQuizReading("");setQuizMeaning("");setQuizResult("");
-    setTimerRunning(false);setPage("study");
+    // 학습 페이지에 들어오는 순간부터 타이머 자동 시작
+    autoPausedRef.current = false;
+    setTimerRunning(pending.length > 0);setPage("study");
+    if (pending.length > 0) updateProgress(scopeId, p => ({ ...p, roundStartedAt: p.roundStartedAt ?? new Date().toISOString() }));
     if (pending.length === 0) setToast("현재 회독을 마쳤어요. 다음 회독을 시작할 수 있어요.");
   };
 
@@ -192,6 +214,7 @@ function App() {
   const exitStudy = () => {
     const delta=Math.max(0,elapsedSeconds-sessionSavedSeconds);
     if(delta){updateProgress(studyScope,p=>({...p,seconds:p.seconds+delta,roundSeconds:elapsedSeconds}));setSessionSavedSeconds(elapsedSeconds);}
+    autoPausedRef.current=false;
     setTimerRunning(false);setPage(studyScope.startsWith("fav:")?"favorites":studyScope.startsWith("collection:")?"collections":"library");
   };
   const resetRound = () => {
@@ -199,13 +222,15 @@ function App() {
     const ids=studyCards.map(c=>c.id);const old=getProgress(appData.progress,studyScope);
     const history=[...(old.roundHistory??[])];
     if(old.roundStartedAt)history.push({round:old.round??old.rounds,status:"다시 시작",startedAt:old.roundStartedAt,endedAt:new Date().toISOString(),seconds:elapsedSeconds,passes,mistakes:old.mistakes??0,known:old.known.length,cards:studyTotal});
-    updateProgress(studyScope,()=>({...emptyProgress(),round:old.round??old.rounds,rounds:old.round??old.rounds,seconds:old.seconds+Math.max(0,elapsedSeconds-sessionSavedSeconds),roundHistory:history,queue:ids,lapRemaining:ids.length,completed:old.completed??0}));
-    setStudyQueue(ids);setLapRemaining(ids.length);setPasses(1);setElapsedSeconds(0);setSessionSavedSeconds(0);setTimerRunning(false);setFlipped(false);resetQuiz();setPadResetKey(n=>n+1);
+    updateProgress(studyScope,()=>({...emptyProgress(),round:old.round??old.rounds,rounds:old.round??old.rounds,seconds:old.seconds+Math.max(0,elapsedSeconds-sessionSavedSeconds),roundHistory:history,queue:ids,lapRemaining:ids.length,completed:old.completed??0,roundStartedAt:new Date().toISOString()}));
+    autoPausedRef.current=false;
+    setStudyQueue(ids);setLapRemaining(ids.length);setPasses(1);setElapsedSeconds(0);setSessionSavedSeconds(0);setTimerRunning(true);setFlipped(false);resetQuiz();setPadResetKey(n=>n+1);
   };
   const nextRound = () => {
     const old=getProgress(appData.progress,studyScope);const next=(old.round??old.rounds)+1;const ids=studyCards.map(c=>c.id);
-    updateProgress(studyScope,()=>({...emptyProgress(),round:next,rounds:next,queue:ids,lapRemaining:ids.length,seconds:old.seconds,completed:old.completed??0,roundHistory:old.roundHistory??[]}));
-    setStudyQueue(ids);setLapRemaining(ids.length);setPasses(1);setElapsedSeconds(0);setSessionSavedSeconds(0);setTimerRunning(false);resetQuiz();setFlipped(false);setPadResetKey(n=>n+1);
+    updateProgress(studyScope,()=>({...emptyProgress(),round:next,rounds:next,queue:ids,lapRemaining:ids.length,seconds:old.seconds,completed:old.completed??0,roundHistory:old.roundHistory??[],roundStartedAt:new Date().toISOString()}));
+    autoPausedRef.current=false;
+    setStudyQueue(ids);setLapRemaining(ids.length);setPasses(1);setElapsedSeconds(0);setSessionSavedSeconds(0);setTimerRunning(true);resetQuiz();setFlipped(false);setPadResetKey(n=>n+1);
   };
   const reorderQueue = (shuffle: boolean) => {
     const active=studyQueue.slice(0,lapRemaining);const deferred=studyQueue.slice(lapRemaining);
@@ -656,7 +681,7 @@ function App() {
             <span className="eyebrow">FOCUS MODE</span>
             <strong>{title}</strong>
           </div>
-          <div className="study-timer-buttons"><span className="study-time"><Clock3 size={15}/>{Math.floor(elapsedSeconds/60)}:{String(elapsedSeconds%60).padStart(2,"0")}</span><button className="button button-outline" onClick={()=>{setTimerRunning(v=>!v);if(!timerRunning)updateProgress(studyScope,p=>({...p,roundStartedAt:p.roundStartedAt??new Date().toISOString()}));}}>{timerRunning?"Ⅱ 일시정지":"▶ 공부 시작"}</button></div>
+          <div className="study-timer-buttons"><span className="study-time"><Clock3 size={15}/>{Math.floor(elapsedSeconds/60)}:{String(elapsedSeconds%60).padStart(2,"0")}</span><button className="button button-outline" onClick={()=>{autoPausedRef.current=false;setTimerRunning(v=>!v);if(!timerRunning)updateProgress(studyScope,p=>({...p,roundStartedAt:p.roundStartedAt??new Date().toISOString()}));}}>{timerRunning?"Ⅱ 일시정지":"▶ 이어서 공부"}</button></div>
         </div>
 
         <div className="study-progress-row"><span>{getProgress(appData.progress,studyScope).round??1}회독 · {passes}차 분류 · 이번 차수 {lapRemaining}개</span>
@@ -676,13 +701,13 @@ function App() {
                 <>
                   <span className="flashcard-kicker">JAPANESE WORD</span>
                   <strong className="flashcard-front">{currentCard.front}</strong>
-                  <span className="flashcard-reading">{flipped?currentCard.reading:"읽는 법과 뜻을 떠올려 보세요"}</span>
+                  <span className="flashcard-reading">{showReading ? (currentCard.reading || "(읽는 법 없음)") : "읽는 법과 뜻을 떠올려 보세요"}</span>
                 </>
               ) : (
                 <>
                   <span className="flashcard-kicker">MEANING</span>
                   <strong className="flashcard-back">{currentCard.back}</strong>
-                  <span className="flashcard-reading">{currentCard.front} · {currentCard.reading}</span>
+                  <span className="flashcard-reading">{currentCard.front}{showReading ? ` · ${currentCard.reading || "(읽는 법 없음)"}` : ""}</span>
                 </>
               )}
             </div>
@@ -695,7 +720,10 @@ function App() {
 
         <div className="study-card-tools">
           <button className="button button-quiet" onClick={() => setFlipped((value) => !value)}>
-            <RotateCcw size={16} /> {flipped ? "앞면 보기" : "뜻 확인하기"}
+            <RotateCcw size={16} /> {flipped ? "앞면 보기" : "뜻 보기"}
+          </button>
+          <button className="button button-quiet" onClick={() => setShowReading((value) => !value)}>
+            <Volume2 size={16} /> {showReading ? "읽는 법 가리기" : "읽는 법 보기"}
           </button>
           <button
             className="button button-quiet"
@@ -730,6 +758,16 @@ function App() {
           </button>
         </div>
         <p className="study-footnote"><CircleHelp size={13} /> 스페이스바를 눌러 카드 앞면과 뒷면을 전환할 수 있어요.</p>
+        </div>
+        {/* 필기장을 확대했을 때만 보이는 단어 배너 (CSS :has 로 제어) */}
+        <div className="study-word-banner">
+          <strong>{currentCard.front}</strong>
+          <button type="button" className={showReading ? "shown" : ""} onClick={() => setShowReading((value) => !value)}>
+            <small>읽는 법</small>{showReading ? (currentCard.reading || "(없음)") : "눌러서 보기"}
+          </button>
+          <button type="button" className={flipped ? "shown" : ""} onClick={() => setFlipped((value) => !value)}>
+            <small>뜻</small>{flipped ? currentCard.back : "눌러서 보기"}
+          </button>
         </div>
         <Scratchpad key={padResetKey} />
       </section>
@@ -903,7 +941,6 @@ function App() {
       />
       <main className="main-area">
         <Topbar page={page} search={search} onSearchChange={setSearch} onExport={exportData} onImport={importData} />
-        <div className="legacy-reference-link"><a href="/recall-card-original-reference.html" target="_blank" rel="noreferrer">↗ 원본 HTML 화면 열기 (기능 비교용)</a></div>
         {search.trim() && page !== "study" ? (
           <div className="content-area">
             <section className="page-intro-row">
