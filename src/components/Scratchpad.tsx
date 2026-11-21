@@ -8,6 +8,8 @@ type Stroke = { points: Point[]; mode: "pen" | "eraser"; color: string; size: nu
 const PEN_COLORS = ["#000000", "#2563eb", "#dc2626", "#16a34a", "#e4c3e2ff", "#b6cdeeff"] as const;
 type Paper = "grid" | "lines" | "blank";
 
+let penDetected = false;
+
 // Keep stroke coordinates in logical CSS pixels so the image stays sharp when resized.
 export function Scratchpad() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -50,7 +52,8 @@ export function Scratchpad() {
       const suppressClick = event.type === "click" && Date.now() < blockedClickUntilRef.current;
 
       if (event.type === "selectstart" || event.type === "contextmenu") {
-        if (insidePad(event.target)) {
+        // 단어 배너는 필기장이 아니므로 텍스트 선택을 허용합니다.
+        if (event.target instanceof Node && padRef.current?.contains(event.target)) {
           event.preventDefault();
           event.stopPropagation();
           return;
@@ -199,35 +202,85 @@ export function Scratchpad() {
     }
   };
 
-  const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+  
+  const onPointerDown = (
+    event: ReactPointerEvent<HTMLCanvasElement>
+  ) => {
     event.preventDefault();
-    // 펜을 실제 사용 중일 때만 손바닥 터치 무시 (나중에는 손가락 필기 가능)
-    if (penFirstRef.current && pointerTypeRef.current === "pen" && event.pointerType === "touch") return;
-    // 손바닥이 먼저 닿아 있었다면 펜이 우선: 손바닥 획을 버리고 펜으로 전환
-    if (event.pointerType === "pen" && pointerIdRef.current !== null && pointerTypeRef.current === "touch") {
-      const previousPointerId = pointerIdRef.current;
-      if (event.currentTarget.hasPointerCapture(previousPointerId)) {
-        event.currentTarget.releasePointerCapture(previousPointerId);
+    event.stopPropagation();
+
+    const canvas = event.currentTarget;
+    const pointerType = event.pointerType;
+
+    // 펜 우선 ON이면 손가락과 손바닥은
+    // 펜 사용 여부와 관계없이 처음부터 무시
+    if (
+      penFirstRef.current &&
+      pointerType === "touch"
+    ) {
+      return;
+    }
+
+    // 마우스는 왼쪽 버튼만 허용
+    if (
+      pointerType === "mouse" &&
+      event.button !== 0
+    ) {
+      return;
+    }
+
+    // 펜 우선 OFF 상태에서 손가락으로 먼저 쓰다가
+    // 펜이 닿으면 펜으로 전환
+    if (
+      pointerType === "pen" &&
+      pointerIdRef.current !== null &&
+      pointerTypeRef.current === "touch"
+    ) {
+      const previousId = pointerIdRef.current;
+
+      if (canvas.hasPointerCapture(previousId)) {
+        canvas.releasePointerCapture(previousId);
       }
+
       activeRef.current = null;
       pointerIdRef.current = null;
       pointerTypeRef.current = "";
       draw();
     }
-    // 쓰는 중 다른 터치 무시
-    if (pointerIdRef.current !== null) return;
-    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    // 이미 필기 중이라면 다른 포인터는 무시
+    if (pointerIdRef.current !== null) {
+      return;
+    }
+
     pointerIdRef.current = event.pointerId;
-    pointerTypeRef.current = event.pointerType;
+    pointerTypeRef.current = pointerType;
+
+    canvas.setPointerCapture(event.pointerId);
     setWriting(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
-    if (modeRef.current === "eraser") { eraseAt(getPoint(event)); return; }
-    // 색과 굵기를 획마다 저장하므로 기존 필기는 설정 변경 후에도 그대로 유지돼요.
-    activeRef.current = { mode: "pen", points: [getPoint(event)], color: penColorRef.current, size: penSizeRef.current };
+
+    if (modeRef.current === "eraser") {
+      eraseAt(getPoint(event));
+      return;
+    }
+
+    activeRef.current = {
+      mode: "pen",
+      points: [getPoint(event)],
+      color: penColorRef.current,
+      size: penSizeRef.current,
+    };
+
     draw();
   };
+
+
   const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     // Hover alone must not disable finger writing.
+
+    if (event.pointerType === "pen") {
+      penDetected = true;
+    } 
     if (event.pointerId !== pointerIdRef.current) return;
     event.preventDefault();
     if (modeRef.current === "eraser") {
@@ -236,7 +289,9 @@ export function Scratchpad() {
     }
     if (!activeRef.current) return;
     activeRef.current.points.push(...getMovePoints(event));
-    draw();
+    draw(
+      
+    );
   };
   const onPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (event.pointerId !== pointerIdRef.current) return;
@@ -314,7 +369,7 @@ export function Scratchpad() {
             <button className={`scratchpad-tool ${mode === "pen" ? "active" : ""}`} onClick={() => chooseMode("pen")} aria-pressed={mode === "pen"}><PenLine size={15} /> 펜</button>
             <button className={`scratchpad-tool ${mode === "eraser" ? "active" : ""}`} onClick={() => chooseMode("eraser")} aria-pressed={mode === "eraser"}><Eraser size={15} /> 획 지우개</button>
             <button className="scratchpad-tool" onClick={undo} disabled={!strokeCount}><Undo2 size={15} /> 한 획 취소</button>
-            <button className={`scratchpad-tool ${penFirst ? "active" : ""}`} onClick={togglePenFirst} aria-pressed={penFirst} title="펜을 쓰면 손가락·손바닥 터치를 무시해요">✍ 펜 우선</button>
+            <button type="button" className={`scratchpad-tool scratchpad-pen-first ${penFirst ? "active" : ""}`} onClick={togglePenFirst} aria-pressed={penFirst} title="펜으로 쓰는 동안 손바닥 입력을 무시합니다">✍ 펜 우선 {penFirst ? "ON" : "OFF"}</button>
           </div>
           <div className="scratchpad-tool-row">
             <label className="scratchpad-paper-select">

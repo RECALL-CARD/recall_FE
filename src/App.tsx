@@ -132,7 +132,7 @@ function App() {
       }
       if (page === "study" && event.code === "Space" && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement) && !(event.target instanceof HTMLSelectElement)) {
         event.preventDefault();
-        setFlipped((value) => !value);
+        setShowInlineMeaning((value) => !value);
       }
     };
     window.addEventListener("keydown", handleShortcut);
@@ -693,7 +693,12 @@ function App() {
         </div>
 
         <div className={`flashcard-wrap ${flipped ? "is-flipped" : ""}`}>
-          <button className="flashcard" onClick={() => setShowInlineMeaning((value) => !value)} aria-label={showInlineMeaning ? "한자 아래 뜻 가리기" : "한자 아래 뜻 보기"} aria-expanded={showInlineMeaning}>
+          <div className="flashcard" role="button" tabIndex={0} onClick={() => {
+            if (window.getSelection()?.toString().trim()) return;
+            setShowInlineMeaning(value => !value);
+          }} onKeyDown={(event) => {
+            if (event.key === "Enter") { event.preventDefault(); setShowInlineMeaning(value => !value); }
+          }} aria-label={showInlineMeaning ? "한자 아래 뜻 가리기" : "한자 아래 뜻 보기"} aria-expanded={showInlineMeaning}>
             <div className="flashcard-top">
               <span>{flipped ? "ANSWER" : "QUESTION"}</span>
               <span className="flashcard-hint">카드를 눌러 뜻 {showInlineMeaning ? "가리기" : "보기"} <span>↗</span></span>
@@ -703,8 +708,8 @@ function App() {
                 <>
                   <span className="flashcard-kicker">JAPANESE WORD</span>
                   <strong className="flashcard-front">{currentCard.front}</strong>
-                  {showInlineMeaning && <span className="flashcard-inline-meaning">{currentCard.back}</span>}
                   <span className="flashcard-reading">{showReading ? (currentCard.reading || "(읽는 법 없음)") : "읽는 법과 뜻을 떠올려 보세요"}</span>
+                  <span className="flashcard-inline-meaning" style={{ visibility: showInlineMeaning ? "visible" : "hidden" }} aria-hidden={!showInlineMeaning}>{currentCard.back}</span>
                 </>
               ) : (
                 <>
@@ -718,12 +723,12 @@ function App() {
               <span><Sparkles size={14} /> 반복해서 기억해요</span>
               <span>SPACE ↵</span>
             </div>
-          </button>
+          </div>
         </div>
 
         <div className="study-card-tools">
-          <button className="button button-quiet" onClick={() => setFlipped((value) => !value)}>
-            <RotateCcw size={16} /> {flipped ? "앞면 보기" : "뜻 보기"}
+          <button className="button button-quiet" onClick={() => setShowInlineMeaning(value => !value)} aria-expanded={showInlineMeaning}>
+            <RotateCcw size={16} /> {showInlineMeaning ? "뜻 가리기" : "뜻 보기"}
           </button>
           <button className="button button-quiet" onClick={() => setShowReading((value) => !value)}>
             <Volume2 size={16} /> {showReading ? "읽는 법 가리기" : "읽는 법 보기"}
@@ -760,7 +765,7 @@ function App() {
             <span><strong>알고 있어요</strong><small>다음 카드로 이동</small></span>
           </button>
         </div>
-        <p className="study-footnote"><CircleHelp size={13} /> 스페이스바를 눌러 카드 앞면과 뒷면을 전환할 수 있어요.</p>
+        <p className="study-footnote"><CircleHelp size={13} /> 스페이스바를 눌러 한자 아래 뜻을 표시하거나 가릴 수 있어요.</p>
         </div>
         {/* 필기장을 확대했을 때만 보이는 단어 배너 (CSS :has 로 제어) */}
         <div className="study-word-banner">
