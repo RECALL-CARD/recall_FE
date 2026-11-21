@@ -678,3 +678,12 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   user-select: none !important;
   -webkit-touch-callout: none !important;
 }
+
+/* 필기 중에는 카드의 강제 선택 허용 규칙보다 이 규칙이 우선합니다.
+   펜을 뗀 직후 1초간도 유지하여 손바닥의 길게 누르기 선택을 방지합니다. */
+.study-page.scratchpad-handwriting-guard .flashcard-content,
+.study-page.scratchpad-handwriting-guard .flashcard-content * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
