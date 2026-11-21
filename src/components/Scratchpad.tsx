@@ -6,17 +6,24 @@ type Point = { x: number; y: number };
 type Stroke = { points: Point[]; mode: "pen" | "eraser" };
 type Paper = "grid" | "lines" | "blank";
 
+// 카드가 바뀌어 컴포넌트가 다시 만들어져도 "펜을 썼다"는 사실은 유지해요.
+let penDetected = false;
+
 // Keep stroke coordinates in logical CSS pixels so the image stays sharp when resized.
 export function Scratchpad() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const strokesRef = useRef<Stroke[]>([]);
   const activeRef = useRef<Stroke | null>(null);
   const modeRef = useRef<"pen" | "eraser">("pen");
+  const pointerIdRef = useRef<number | null>(null);
+  const pointerTypeRef = useRef<string>("");
+  const penFirstRef = useRef(true);
   const [strokeCount, setStrokeCount] = useState(0);
   const [mode, setMode] = useState<"pen" | "eraser">("pen");
   const [paper, setPaper] = useState<Paper>("grid");
   const [expanded, setExpanded] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [penFirst, setPenFirst] = useState(true);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -90,14 +97,30 @@ export function Scratchpad() {
       draw();
     }
   };
+
   const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === "pen") penDetected = true;
+    // 펜을 쓴 뒤에는 손가락·손바닥 터치 무시
+    if (penFirstRef.current && penDetected && event.pointerType === "touch") return;
+    // 손바닥이 먼저 닿아 있었다면 펜이 우선: 손바닥 획을 버리고 펜으로 전환
+    if (event.pointerType === "pen" && pointerIdRef.current !== null && pointerTypeRef.current === "touch") {
+      activeRef.current = null;
+      pointerIdRef.current = null;
+      draw();
+    }
+    // 쓰는 중 다른 터치 무시
+    if (pointerIdRef.current !== null) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
+    pointerIdRef.current = event.pointerId;
+    pointerTypeRef.current = event.pointerType;
     event.currentTarget.setPointerCapture(event.pointerId);
     if (modeRef.current === "eraser") { eraseAt(getPoint(event)); return; }
     activeRef.current = { mode: "pen", points: [getPoint(event)] };
     draw();
   };
   const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === "pen") penDetected = true; // 호버만 해도 펜 감지
+    if (event.pointerId !== pointerIdRef.current) return;
     if (modeRef.current === "eraser") {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) eraseAt(getPoint(event));
       return;
@@ -107,6 +130,8 @@ export function Scratchpad() {
     draw();
   };
   const onPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerId !== pointerIdRef.current) return;
+    pointerIdRef.current = null;
     if (modeRef.current === "eraser") return;
     if (!activeRef.current) return;
     activeRef.current.points.push(getPoint(event));
@@ -129,6 +154,11 @@ export function Scratchpad() {
   const chooseMode = (next: "pen" | "eraser") => {
     modeRef.current = next;
     setMode(next);
+  };
+  const togglePenFirst = () => {
+    const next = !penFirst;
+    penFirstRef.current = next;
+    setPenFirst(next);
   };
 
   if (collapsed) {
@@ -160,6 +190,7 @@ export function Scratchpad() {
           <button className={`scratchpad-tool ${mode === "pen" ? "active" : ""}`} onClick={() => chooseMode("pen")} aria-pressed={mode === "pen"}><PenLine size={15} /> 펜</button>
           <button className={`scratchpad-tool ${mode === "eraser" ? "active" : ""}`} onClick={() => chooseMode("eraser")} aria-pressed={mode === "eraser"}><Eraser size={15} /> 획 지우개</button>
           <button className="scratchpad-tool" onClick={undo} disabled={!strokeCount}><Undo2 size={15} /> 한 획 취소</button>
+          <button className={`scratchpad-tool ${penFirst ? "active" : ""}`} onClick={togglePenFirst} aria-pressed={penFirst} title="펜을 쓰면 손가락·손바닥 터치를 무시해요">✍ 펜 우선</button>
         </div>
         <div className="scratchpad-tool-row">
           <label className="scratchpad-paper-select">
@@ -183,9 +214,12 @@ export function Scratchpad() {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
+          onContextMenu={(event) => event.preventDefault()}
         />
       </div>
       <footer className="scratchpad-footer"><span>다음 카드로 넘어가면 필기가 지워져요.</span><span>{strokeCount}획</span></footer>
     </section>
   );
 }
+
+export default Scratchpad;
