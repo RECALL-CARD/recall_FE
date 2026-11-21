@@ -546,19 +546,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   z-index: 35;
 }
 
-/* General app UI is not selectable by long press; form fields remain editable. */
-html, body, #root, #root * {
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-}
-input, textarea, [contenteditable="true"] {
-  -webkit-user-select: text !important;
-  user-select: text !important;
-  -webkit-touch-callout: default;
-}
-
-
 /* 필기장 펜 색상 및 굵기 선택 — 기존 스타일은 그대로 유지 */
 .scratchpad-pen-options {
   display: flex;
@@ -601,7 +588,7 @@ input, textarea, [contenteditable="true"] {
   display: block;
   margin-top: 12px;
   color: #1d4f82;
-  font-size: clamp(16px, 2.2vw, 24px);
+  font-size: clamp(24px, 2.2vw, 24px);
   font-weight: 600;
   white-space: pre-wrap;
 }
@@ -629,3 +616,16 @@ input, textarea, [contenteditable="true"] {
   white-space: pre-wrap;
 }
 .study-word-banner { pointer-events: auto; }
+
+/* 필기 영역만 선택 금지. 학습 카드와 한자는 텍스트 선택 가능 */
+.flashcard, .flashcard *,
+.flashcard-front, .flashcard-inline-meaning,
+.study-word-banner .study-word-title,
+.study-word-banner .study-word-title * {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+.scratchpad-pen-first-row { flex-wrap: wrap; gap: 8px; }
+.scratchpad-pen-first { min-width: 112px; justify-content: center; font-size: 11px; }
+.scratchpad-pen-first-hint { font-size: 10px; color: #627381; }

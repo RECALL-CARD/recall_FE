@@ -50,7 +50,8 @@ export function Scratchpad() {
       const suppressClick = event.type === "click" && Date.now() < blockedClickUntilRef.current;
 
       if (event.type === "selectstart" || event.type === "contextmenu") {
-        if (insidePad(event.target)) {
+        // 단어 배너는 필기장이 아니므로 텍스트 선택을 허용합니다.
+        if (event.target instanceof Node && padRef.current?.contains(event.target)) {
           event.preventDefault();
           event.stopPropagation();
           return;
@@ -314,7 +315,7 @@ export function Scratchpad() {
             <button className={`scratchpad-tool ${mode === "pen" ? "active" : ""}`} onClick={() => chooseMode("pen")} aria-pressed={mode === "pen"}><PenLine size={15} /> 펜</button>
             <button className={`scratchpad-tool ${mode === "eraser" ? "active" : ""}`} onClick={() => chooseMode("eraser")} aria-pressed={mode === "eraser"}><Eraser size={15} /> 획 지우개</button>
             <button className="scratchpad-tool" onClick={undo} disabled={!strokeCount}><Undo2 size={15} /> 한 획 취소</button>
-            <button className={`scratchpad-tool ${penFirst ? "active" : ""}`} onClick={togglePenFirst} aria-pressed={penFirst} title="펜을 쓰면 손가락·손바닥 터치를 무시해요">✍ 펜 우선</button>
+            <button type="button" className={`scratchpad-tool scratchpad-pen-first ${penFirst ? "active" : ""}`} onClick={togglePenFirst} aria-pressed={penFirst} title="펜으로 쓰는 동안 손바닥 입력을 무시합니다">✍ 펜 우선 {penFirst ? "ON" : "OFF"}</button>
           </div>
           <div className="scratchpad-tool-row">
             <label className="scratchpad-paper-select">
