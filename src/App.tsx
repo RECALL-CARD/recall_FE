@@ -22,6 +22,8 @@ import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
 import { StatCard } from "./components/StatCard";
 import { CardRow } from "./components/CardRow";
+import { Scratchpad } from "./components/Scratchpad";
+import { romajiVariants } from "./lib/romaji";
 import { getProgress, loadAppData, parseBackup, saveAppData, downloadBackup } from "./lib/storage";
 import kanjiData from "./data/kanji.json";
 import type { AppData, Card, Page, Progress } from "./types";
@@ -37,20 +39,39 @@ function App() {
   const [page, setPage] = useState<Page>("home");
   const [selectedDeckId, setSelectedDeckId] = useState(appData.decks[0]?.id ?? "");
   const [search, setSearch] = useState("");
+  const [librarySearch, setLibrarySearch] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showAddCard, setShowAddCard] = useState(false);
-  const [newCard, setNewCard] = useState({ front: "", reading: "", back: "" });
+  const [newCard, setNewCard] = useState({ front: "", reading: "", back: "", voiceLang: "" });
   const [toast, setToast] = useState("");
   const [studyQueue, setStudyQueue] = useState<string[]>([]);
   const [studyScope, setStudyScope] = useState("deck");
   const [studyDeckId, setStudyDeckId] = useState(appData.decks[0]?.id ?? "");
   const [flipped, setFlipped] = useState(false);
+  const [padResetKey, setPadResetKey] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [sessionSavedSeconds, setSessionSavedSeconds] = useState(0);
   const [studySessionTotal, setStudySessionTotal] = useState(0);
   const [kanjiQuery, setKanjiQuery] = useState("");
   const [selectedKanji, setSelectedKanji] = useState<KanjiItem | null>(null);
   const [collectionName, setCollectionName] = useState("");
+  const [editCardId, setEditCardId] = useState<string | null>(null);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [typingEnabled, setTypingEnabled] = useState(false);
+  const [typingTarget, setTypingTarget] = useState<"reading"|"meaning"|"both">("reading");
+  const [romajiEnabled, setRomajiEnabled] = useState(true);
+  const [quizReading, setQuizReading] = useState("");
+  const [quizMeaning, setQuizMeaning] = useState("");
+  const [quizResult, setQuizResult] = useState("");
+  const [lapRemaining, setLapRemaining] = useState(0);
+  const [passes, setPasses] = useState(1);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [scopeLabel, setScopeLabel] = useState("");
+  const [practiceMode, setPracticeMode] = useState(false);
+  const [practiceIndex, setPracticeIndex] = useState(0);
+  const [practiceReveal, setPracticeReveal] = useState(false);
+  const [csvScope, setCsvScope] = useState<"current"|"all">("current");
+  const [csvImportScope, setCsvImportScope] = useState<"current"|"structure">("current");
 
   const selectedDeck = appData.decks.find((deck) => deck.id === selectedDeckId) ?? appData.decks[0];
   const allCards = useMemo(() => appData.decks.flatMap((deck) => deck.cards), [appData.decks]);
@@ -64,10 +85,17 @@ function App() {
   }, [appData]);
 
   useEffect(() => {
-    if (page !== "study" || studyQueue.length === 0) return;
+    if (page !== "study" || !timerRunning || document.hidden || studyQueue.length === 0) return;
     const timer = window.setInterval(() => setElapsedSeconds((seconds) => seconds + 1), 1000);
     return () => window.clearInterval(timer);
-  }, [page, studyQueue.length]);
+  }, [page, studyQueue.length, timerRunning]);
+
+  useEffect(() => {
+    if(page!=="study"||!timerRunning)return;
+    const onHide=()=>{if(document.hidden)setTimerRunning(false);};
+    document.addEventListener("visibilitychange",onHide);
+    return()=>document.removeEventListener("visibilitychange",onHide);
+  },[page,timerRunning]);
 
   useEffect(() => {
     if (!toast) return;
@@ -81,7 +109,7 @@ function App() {
         event.preventDefault();
         document.querySelector<HTMLInputElement>(".global-search input")?.focus();
       }
-      if (page === "study" && event.code === "Space" && !(event.target instanceof HTMLInputElement)) {
+      if (page === "study" && event.code === "Space" && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement) && !(event.target instanceof HTMLSelectElement)) {
         event.preventDefault();
         setFlipped((value) => !value);
       }
@@ -112,88 +140,154 @@ function App() {
     }));
   };
 
-  const startStudy = (deckId: string, scope: "deck" | "favorites" = "deck") => {
+  const startStudy = (deckId: string, scope: "deck" | "favorites" | "collection" = "deck", collectionId = "") => {
     const deck = appData.decks.find((item) => item.id === deckId);
-    const cards = scope === "favorites" ? favoriteCards : deck?.cards ?? [];
-    const scopeId = scope === "favorites" ? "favorites" : deckId;
+    const cards = scope === "favorites" ? (deck?.cards.filter(c=>c.starred) ?? []) : scope === "collection" ? allCards.filter(c=>appData.collections.find(x=>x.id===collectionId)?.cardIds.includes(c.id)) : deck?.cards ?? [];
+    const scopeId = scope === "favorites" ? `fav:${deckId}` : scope === "collection" ? `collection:${collectionId}` : deckId;
     const progress = getProgress(appData.progress, scopeId);
-    const pending = cards.filter((card) => !progress.known.includes(card.id));
-    setStudyScope(scopeId);
-    setStudyDeckId(deckId);
-    setStudyQueue(pending.map((card) => card.id));
-    setFlipped(false);
-    setElapsedSeconds(0);
-    setSessionSavedSeconds(0);
-    setStudySessionTotal(pending.length);
-    setPage("study");
-    if (pending.length === 0) setToast("학습할 카드가 없어요. 라이브러리에서 카드를 추가해 보세요.");
+    const ids = new Set(cards.map(c=>c.id));
+    const pending = progress.queue?.length ? progress.queue.filter(id=>ids.has(id)&&!progress.known.includes(id)) : cards.filter(c=>!progress.known.includes(c.id)).map(c=>c.id);
+    setStudyScope(scopeId); setStudyDeckId(deckId);
+    setScopeLabel(scope === "favorites" ? `${deck?.name} · 즐겨찾기` : scope === "collection" ? appData.collections.find(c=>c.id===collectionId)?.name ?? "나의 모음" : deck?.name ?? "학습");
+    setStudyQueue(pending); setLapRemaining(progress.lapRemaining && progress.queue?.length ? Math.min(progress.lapRemaining,pending.length) : pending.length);
+    setPasses(progress.passes ?? 1); setPadResetKey(n=>n+1); setFlipped(false);
+    setElapsedSeconds(progress.roundSeconds??0); setSessionSavedSeconds(progress.roundSeconds??0); setStudySessionTotal(cards.length);
+    setTypingEnabled(deck?.typingSettings?.enabled ?? false);
+    setTypingTarget(deck?.typingSettings?.target ?? "reading");
+    setRomajiEnabled(deck?.typingSettings?.allowRomaji ?? true);
+    setQuizReading("");setQuizMeaning("");setQuizResult("");
+    setTimerRunning(false);setPage("study");
+    if (pending.length === 0) setToast("현재 회독을 마쳤어요. 다음 회독을 시작할 수 있어요.");
   };
 
-  const studyCards = studyScope === "favorites" ? favoriteCards : selectedDeck?.cards ?? [];
+  const studyCards = studyScope.startsWith("fav:") ? appData.decks.find(d=>d.id===studyDeckId)?.cards.filter(c=>c.starred) ?? [] : studyScope.startsWith("collection:") ? allCards.filter(c=>appData.collections.find(x=>x.id===studyScope.slice(11))?.cardIds.includes(c.id)) : appData.decks.find(d=>d.id===studyDeckId)?.cards ?? [];
   const currentCard = studyCards.find((card) => card.id === studyQueue[0]);
   const studyDone = page === "study" && studyQueue.length === 0;
   const studyTotal = studySessionTotal;
-  const studyDoneCount = studyTotal - studyQueue.length;
+  const studyDoneCount = getProgress(appData.progress,studyScope).known.filter(id=>studyCards.some(c=>c.id===id)).length;
 
-  const markKnown = () => {
+  const resetQuiz = () => {setQuizReading("");setQuizMeaning("");setQuizResult("");};
+  const recordAnswer = (known: boolean) => {
     if (!currentCard) return;
-    updateProgress(studyScope, (current) => ({
-      ...current,
-      known: current.known.includes(currentCard.id) ? current.known : [...current.known, currentCard.id],
-      review: current.review.filter((id) => id !== currentCard.id),
-      seconds: current.seconds + Math.max(0, elapsedSeconds - sessionSavedSeconds),
-    }));
-    setSessionSavedSeconds(elapsedSeconds);
-    setStudyQueue((queue) => queue.slice(1));
-    setFlipped(false);
-  };
-
-  const exitStudy = () => {
-    const unsavedSeconds = Math.max(0, elapsedSeconds - sessionSavedSeconds);
-    if (unsavedSeconds > 0) {
-      updateProgress(studyScope, (current) => ({
-        ...current,
-        seconds: current.seconds + unsavedSeconds,
-      }));
-      setSessionSavedSeconds(elapsedSeconds);
+    const prior = getProgress(appData.progress,studyScope);
+    const remaining = Math.max(0,lapRemaining-1);
+    let queue = [...studyQueue.slice(1)];
+    if (!known) queue.push(currentCard.id);
+    let nextLap = remaining;let nextPass = passes;
+    if (!remaining && queue.length){queue=[...queue].sort(()=>Math.random()-.5);nextLap=queue.length;nextPass++;setToast(`모르는 ${queue.length}개를 다시 섞었어요 · ${nextPass}차 분류`);}
+    const nextKnown=known ? [...new Set([...prior.known,currentCard.id])] : prior.known;
+    const nextMistakes=(prior.mistakes ?? 0)+(known?0:1);
+    const nextSeconds=prior.seconds+Math.max(0,elapsedSeconds-sessionSavedSeconds);
+    const history=[...(prior.roundHistory??[])];
+    if (queue.length===0) {
+      history.push({round:prior.round??prior.rounds,status:"완료",startedAt:prior.roundStartedAt??null,endedAt:new Date().toISOString(),seconds:elapsedSeconds,passes:nextPass,mistakes:nextMistakes,known:nextKnown.length,cards:studyTotal});
+      setTimerRunning(false);
     }
-    setPage(studyScope === "favorites" ? "favorites" : "library");
+    updateProgress(studyScope,()=>({...prior,known:nextKnown,review:known?prior.review.filter(id=>id!==currentCard.id):[...new Set([...prior.review,currentCard.id])],queue,lapRemaining:nextLap,passes:nextPass,round:prior.round??prior.rounds,seconds:nextSeconds,roundSeconds:elapsedSeconds,roundStartedAt:prior.roundStartedAt??new Date().toISOString(),mistakes:nextMistakes,roundHistory:history,completed:(prior.completed??0)+(queue.length===0?1:0)}));
+    setSessionSavedSeconds(elapsedSeconds);setStudyQueue(queue);setLapRemaining(nextLap);setPasses(nextPass);
+    setPadResetKey(n=>n+1);setFlipped(false);resetQuiz();
+  };
+  const markKnown = () => recordAnswer(true);
+  const markReview = () => recordAnswer(false);
+  const exitStudy = () => {
+    const delta=Math.max(0,elapsedSeconds-sessionSavedSeconds);
+    if(delta){updateProgress(studyScope,p=>({...p,seconds:p.seconds+delta,roundSeconds:elapsedSeconds}));setSessionSavedSeconds(elapsedSeconds);}
+    setTimerRunning(false);setPage(studyScope.startsWith("fav:")?"favorites":studyScope.startsWith("collection:")?"collections":"library");
+  };
+  const resetRound = () => {
+    if (!window.confirm("이번 회독의 분류 기록을 지우고 처음부터 다시 시작할까요? 이전 완료 회독 기록과 누적 시간은 보존됩니다."))return;
+    const ids=studyCards.map(c=>c.id);const old=getProgress(appData.progress,studyScope);
+    const history=[...(old.roundHistory??[])];
+    if(old.roundStartedAt)history.push({round:old.round??old.rounds,status:"다시 시작",startedAt:old.roundStartedAt,endedAt:new Date().toISOString(),seconds:elapsedSeconds,passes,mistakes:old.mistakes??0,known:old.known.length,cards:studyTotal});
+    updateProgress(studyScope,()=>({...emptyProgress(),round:old.round??old.rounds,rounds:old.round??old.rounds,seconds:old.seconds+Math.max(0,elapsedSeconds-sessionSavedSeconds),roundHistory:history,queue:ids,lapRemaining:ids.length,completed:old.completed??0}));
+    setStudyQueue(ids);setLapRemaining(ids.length);setPasses(1);setElapsedSeconds(0);setSessionSavedSeconds(0);setTimerRunning(false);setFlipped(false);resetQuiz();setPadResetKey(n=>n+1);
+  };
+  const nextRound = () => {
+    const old=getProgress(appData.progress,studyScope);const next=(old.round??old.rounds)+1;const ids=studyCards.map(c=>c.id);
+    updateProgress(studyScope,()=>({...emptyProgress(),round:next,rounds:next,queue:ids,lapRemaining:ids.length,seconds:old.seconds,completed:old.completed??0,roundHistory:old.roundHistory??[]}));
+    setStudyQueue(ids);setLapRemaining(ids.length);setPasses(1);setElapsedSeconds(0);setSessionSavedSeconds(0);setTimerRunning(false);resetQuiz();setFlipped(false);setPadResetKey(n=>n+1);
+  };
+  const reorderQueue = (shuffle: boolean) => {
+    const active=studyQueue.slice(0,lapRemaining);const deferred=studyQueue.slice(lapRemaining);
+    const order=new Map(studyCards.map((c,i)=>[c.id,i]));
+    if(shuffle){for(let i=active.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[active[i],active[j]]=[active[j],active[i]];}}
+    else{active.sort((a,b)=>(order.get(a)??0)-(order.get(b)??0));deferred.sort((a,b)=>(order.get(a)??0)-(order.get(b)??0));}
+    const queue=[...active,...deferred];setStudyQueue(queue);updateProgress(studyScope,p=>({...p,queue,lapRemaining}));setFlipped(false);resetQuiz();setPadResetKey(n=>n+1);
+  };
+  const gradeQuiz = () => {
+    if(!currentCard)return;
+    const normalized=(s:string)=>s.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s+/g,"");
+    const lines:string[]=[];
+    if(typingTarget!=="meaning"){
+      const actual=normalized(quizReading);const expected=normalized(currentCard.reading);
+      const match=actual===expected || (romajiEnabled&&romajiVariants(currentCard.reading).has(actual));
+      lines.push(`${match?"✓":"△"} 읽는 법: ${quizReading||"(미입력)"} / 정답: ${currentCard.reading||"(없음)"}`);
+    }
+    if(typingTarget!=="reading")lines.push(`${normalized(quizMeaning)===normalized(currentCard.back)?"✓ 문구 일치":"△ 정답과 비교"} 뜻: ${quizMeaning||"(미입력)"} / ${currentCard.back}`);
+    setQuizResult(lines.join("\n")+"\n답 확인은 분류에 반영되지 않습니다. 아래 버튼으로 직접 분류하세요.");
   };
 
-  const markReview = () => {
-    if (!currentCard) return;
-    updateProgress(studyScope, (current) => ({
-      ...current,
-      review: current.review.includes(currentCard.id) ? current.review : [...current.review, currentCard.id],
-    }));
-    setStudyQueue((queue) => (queue.length > 1 ? [...queue.slice(1), queue[0]] : queue));
-    setFlipped(false);
+  const openEdit = (card:Card) => {setEditCardId(card.id);setNewCard({front:card.front,reading:card.reading,back:card.back,voiceLang:card.voiceLang||""});setShowAddCard(true);};
+  const removeCard = (id:string) => {
+    if(!confirm("이 카드를 삭제할까요? 연관된 학습 상태에서도 제거됩니다."))return;
+    setAppData(prev=>({...prev,decks:prev.decks.map(d=>({...d,cards:d.cards.filter(c=>c.id!==id)})),collections:prev.collections.map(c=>({...c,cardIds:c.cardIds.filter(x=>x!==id)})),progress:Object.fromEntries(Object.entries(prev.progress).map(([key,val])=>[key,{...val,known:val.known.filter(x=>x!==id),review:val.review.filter(x=>x!==id),queue:val.queue?.filter(x=>x!==id)}]))}));
+    setStudyQueue(q=>q.filter(x=>x!==id));setToast("카드를 삭제했어요.");
   };
-
   const addCard = () => {
     if (!selectedDeck || !newCard.front.trim() || !newCard.back.trim()) {
       setToast("앞면과 뜻을 입력해 주세요.");
       return;
     }
     const card: Card = {
-      id: `custom-${crypto.randomUUID()}`,
+      id: editCardId??`custom-${crypto.randomUUID()}`,
       front: newCard.front.trim(),
       reading: newCard.reading.trim(),
       back: newCard.back.trim(),
-      voiceLang: "ja-JP",
-      starred: false,
+      voiceLang: newCard.voiceLang,
+      starred: editCardId ? allCards.find(c=>c.id===editCardId)?.starred : false,
     };
     setAppData((current) => ({
       ...current,
       decks: current.decks.map((deck) =>
-        deck.id === selectedDeck.id ? { ...deck, cards: [...deck.cards, card] } : deck,
+        editCardId ? {...deck,cards:deck.cards.map(c=>c.id===editCardId?{...c,...card}:c)} : deck.id === selectedDeck.id ? { ...deck, cards: [...deck.cards, card] } : deck,
       ),
     }));
-    setNewCard({ front: "", reading: "", back: "" });
-    setShowAddCard(false);
-    setToast("새 카드를 추가했어요.");
+    setNewCard({ front: "", reading: "", back: "", voiceLang:"" });
+    setEditCardId(null);setShowAddCard(false);
+    setToast(editCardId?"카드를 수정했어요.":"새 카드를 추가했어요.");
   };
 
+  const createFolder = () => {
+    const name=prompt("새 폴더 이름");if(!name?.trim())return;
+    setAppData(d=>({...d,folders:[...d.folders,{id:crypto.randomUUID(),name:name.trim(),parent:selectedDeck?.parent||null}]}));setToast("폴더를 만들었어요.");
+  };
+  const createDeck = () => {
+    const name=prompt("새 단어장 이름");if(!name?.trim())return;
+    const kind=confirm("언어 학습 단어장으로 만들까요?\n확인: 언어 학습 / 취소: 개념 암기")?"language":"concept";
+    const id=crypto.randomUUID();setAppData(d=>({...d,decks:[...d.decks,{id,name:name.trim(),parent:selectedDeck?.parent||"",kind,language:kind==="concept"?"ko-KR":"ja-JP",cards:[]}]}));setSelectedDeckId(id);setToast("단어장을 만들었어요.");
+  };
+  const renameDeck = (id:string) => {
+    const deck=appData.decks.find(d=>d.id===id);if(!deck)return;
+    const name=prompt("단어장 이름 수정",deck.name);if(name===null)return;
+    if(!name.trim())return setToast("이름을 입력해 주세요.");
+    setAppData(d=>({...d,decks:d.decks.map(x=>x.id===id?{...x,name:name.trim()}:x)}));
+  };
+  const renameFolder = (id:string) => {
+    const folder=appData.folders.find(f=>f.id===id);if(!folder)return;
+    const name=prompt("폴더 이름 수정",folder.name);if(!name?.trim())return;
+    setAppData(d=>({...d,folders:d.folders.map(f=>f.id===id?{...f,name:name.trim()}:f)}));
+  };
+  const deleteFolder = (id:string) => {
+    if(appData.folders.some(f=>f.parent===id)||appData.decks.some(d=>d.parent===id)){setToast("하위 폴더와 단어장을 먼저 옮겨 주세요.");return;}
+    if(!confirm("빈 폴더를 삭제할까요?"))return;
+    setAppData(d=>({...d,folders:d.folders.filter(f=>f.id!==id)}));
+  };
+  const deleteDeck = (id:string) => {
+    const deck=appData.decks.find(d=>d.id===id);if(!deck||!confirm(`'${deck.name}' 단어장과 소속 카드, 학습 기록을 삭제할까요?`))return;
+    const ids=new Set(deck.cards.map(c=>c.id));
+    setAppData(d=>({...d,decks:d.decks.filter(x=>x.id!==id),progress:Object.fromEntries(Object.entries(d.progress).filter(([k])=>k!==id&&k!==`fav:${id}`).map(([k,v])=>[k,{...v,known:v.known.filter(x=>!ids.has(x)),review:v.review.filter(x=>!ids.has(x)),queue:v.queue?.filter(x=>!ids.has(x))}])),collections:d.collections.map(c=>({...c,cardIds:c.cardIds.filter(id=>!ids.has(id))}))}));
+    setSelectedDeckId(appData.decks.find(d=>d.id!==id)?.id??"");setToast("단어장을 삭제했어요.");
+  };
   const createCollection = () => {
     if (!collectionName.trim()) {
       setToast("모음 이름을 입력해 주세요.");
@@ -227,6 +321,48 @@ function App() {
     setToast("모음에 카드를 추가했어요.");
   };
 
+  const folderPath=(id:string|null):string=>{const parts:string[]=[];let seen=0;while(id&&seen++<40){const f=appData.folders.find(x=>x.id===id);if(!f)break;parts.unshift(f.name);id=f.parent;}return parts.join(" / ");};
+  const downloadFile=(content:string,name:string,mime:string)=>{const url=URL.createObjectURL(new Blob([content],{type:mime}));const a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),500);};
+  const quoteCsv=(value:unknown)=>{let str=String(value??"");if(/^[\s]*[=+@]/.test(str)||/^[\s]*-(?!\d)/.test(str))str="'"+str;return `"${str.replace(/"/g,'""')}"`;};
+  const writeCsv=(rows:unknown[][],filename:string)=>downloadFile("\uFEFF"+rows.map(r=>r.map(quoteCsv).join(",")).join("\r\n"),filename,"text/csv;charset=utf-8");
+  const exportCardsCsv=()=>{
+    const decks=csvScope==="all"?appData.decks:selectedDeck?[selectedDeck]:[];
+    const header=["폴더경로","단어장","학습유형","기본발음언어","앞면","읽는법","뒷면","개별발음언어","즐겨찾기"];
+    writeCsv([header,...decks.flatMap(d=>d.cards.map(c=>[folderPath(d.parent),d.name,d.kind,d.language,c.front,c.reading,c.back,c.voiceLang??"",c.starred?"1":"0"]))],"리콜카드_카드.csv");
+  };
+  const exportStudyCsv=()=>{
+    const decks=csvScope==="all"?appData.decks:selectedDeck?[selectedDeck]:[];
+    const header=["단어장","회독","상태","시작일시","종료일시","공부시간(초)","총카드수","알고있음","분류차수","오답횟수"];
+    const rows:unknown[][]=[];
+    for(const d of decks){const p=getProgress(appData.progress,d.id);for(const record of p.roundHistory??[])rows.push([d.name,record.round,record.status,record.startedAt,record.endedAt,record.seconds,record.cards,record.known,record.passes,record.mistakes]);rows.push([d.name,p.round??1,"현재 상태",p.roundStartedAt??"","",p.roundSeconds??0,d.cards.length,p.known.length,p.passes??1,p.mistakes??0]);}
+    writeCsv([header,...rows],"리콜카드_공부기록.csv");
+  };
+  const importCardsCsv=async(file:File)=>{
+    try{
+      const text=(await file.text()).replace(/^\uFEFF/,"");const rows: string[][]=[];let row:string[]=[],cell="",quoted=false;
+      for(let i=0;i<text.length;i++){const ch=text[i];if(quoted){if(ch==='"'&&text[i+1]==='"'){cell+='"';i++;}else if(ch==='"')quoted=false;else cell+=ch;}else if(ch==='"')quoted=true;else if(ch===','){row.push(cell);cell="";}else if(ch==='\r'||ch==='\n'){row.push(cell);if(row.some(Boolean))rows.push(row);row=[];cell="";if(ch==='\r'&&text[i+1]==='\n')i++;}else cell+=ch;}
+      row.push(cell);if(row.some(Boolean))rows.push(row);
+      if(!rows.length)throw Error("빈 CSV 파일입니다.");
+      const keys=rows[0].map(x=>x.toLowerCase().replace(/[\s_\/-]/g,""));const field=(...names:string[])=>keys.findIndex(k=>names.includes(k));
+      const map={front:field("앞면","일본어","문형","질문","단어","front","word","term","표제어"),back:field("뒷면","한국어뜻","뜻","정답","설명","back","meaning","answer"),reading:field("읽는법","발음","히라가나","reading","pronunciation"),deck:field("단어장","deck","deckname"),folder:field("폴더경로","folderpath","folder"),language:field("기본발음언어","language","decklanguage"),voice:field("개별발음언어","voicelang","cardlanguage"),starred:field("즐겨찾기","favorite","starred")};
+      const hasHeader=map.front>=0&&map.back>=0;if(!hasHeader){map.front=0;map.back=1;map.reading=2;}
+      const val=(row:string[],idx:number)=>idx<0?"":String(row[idx]??"").trim();
+      const records=rows.slice(hasHeader?1:0).map(r=>({front:val(r,map.front),back:val(r,map.back),reading:val(r,map.reading),deck:val(r,map.deck),folder:val(r,map.folder),language:val(r,map.language),voice:val(r,map.voice),starred:/^(1|true|yes)$/i.test(val(r,map.starred))})).filter(x=>x.front&&x.back);
+      if(!records.length)throw Error("유효한 카드가 없습니다.");
+      if(!confirm(`${records.length}장 가져올까요? 중복 카드는 자동으로 제거되지 않습니다.`))return;
+      setAppData(prev=>{
+        const folders=[...prev.folders],decks=prev.decks.map(d=>({...d,cards:[...d.cards]}));
+        for(const r of records){let target=decks.find(d=>d.id===selectedDeckId);
+          if(csvImportScope==="structure"&&r.deck){let parent:string|null=null;for(const part of r.folder.split(/\s*\/\s*/).filter(Boolean)){let f=folders.find(f=>f.parent===parent&&f.name===part);if(!f){f={id:crypto.randomUUID(),name:part,parent};folders.push(f);}parent=f.id;}
+            target=decks.find(d=>d.parent===(parent??"")&&d.name===r.deck);if(!target){target={id:crypto.randomUUID(),name:r.deck,parent:parent??"",kind:"language",language:r.language||"ja-JP",cards:[]};decks.push(target);}
+          }
+          if(!target){target={id:crypto.randomUUID(),name:"CSV 가져온 단어장",parent:"",kind:"language",language:"ja-JP",cards:[]};decks.push(target);}
+          target.cards.push({id:crypto.randomUUID(),front:r.front,back:r.back,reading:r.reading,voiceLang:r.voice,starred:r.starred});
+        }
+        return {...prev,folders,decks};
+      });setToast(`${records.length}개 카드 가져오기 완료`);
+    }catch(e){setToast(e instanceof Error?e.message:"CSV 가져오기 실패");}
+  };
   const exportData = () => {
     downloadBackup(appData);
     setToast("JSON 백업 파일을 저장했어요.");
@@ -378,7 +514,7 @@ function App() {
   const renderLibrary = () => {
     const deck = selectedDeck;
     if (!deck) return <EmptyState title="단어장이 없어요" description="기본 단어장을 불러오지 못했습니다." />;
-    const query = search.trim().toLowerCase();
+    const query = librarySearch.trim().toLowerCase();
     const filtered = deck.cards.filter((card) =>
       [card.front, card.reading, card.back].some((value) => value.toLowerCase().includes(query)),
     );
@@ -393,17 +529,18 @@ function App() {
             <h1>내 라이브러리</h1>
             <p>단어장을 선택하고, 카드를 정리하고, 바로 학습해 보세요.</p>
           </div>
-          <button className="button button-primary" onClick={() => setShowAddCard(true)}>
-            <Plus size={17} /> 카드 추가
-          </button>
+          <div className="library-create-actions"><button className="button button-outline" onClick={createFolder}>＋ 폴더</button><button className="button button-outline" onClick={createDeck}>＋ 단어장</button><button className="button button-primary" onClick={() => {setEditCardId(null);setNewCard({front:"",reading:"",back:"",voiceLang:""});setShowAddCard(true)}}>
+            <Plus size={17} /> 카드 추가</button></div>
         </section>
 
+        <div className="csv-toolbar"><select value={csvScope} onChange={e=>setCsvScope(e.target.value as typeof csvScope)}><option value="current">현재 단어장</option><option value="all">전체 라이브러리</option></select><button className="button button-outline" onClick={exportCardsCsv}>↓ 카드 CSV</button><select value={csvImportScope} onChange={e=>setCsvImportScope(e.target.value as typeof csvImportScope)}><option value="current">현재 단어장에 추가</option><option value="structure">CSV 폴더·단어장 복원</option></select><label className="button button-outline">↑ CSV 가져오기<input type="file" accept=".csv,text/csv" hidden onChange={e=>{const file=e.target.files?.[0];if(file)void importCardsCsv(file);e.target.value=""}}/></label></div>
         <section className="library-layout">
           <aside className="deck-picker panel">
             <div className="panel-heading">
               <strong>단어장 목록</strong>
               <span>{appData.decks.length}</span>
             </div>
+            <div className="folder-management"><h4>폴더 구조</h4>{appData.folders.map(folder=><div className="folder-manager-row" key={folder.id}><span>{folderPath(folder.parent)}{folder.parent?" / ":""}{folder.name}</span><button onClick={()=>renameFolder(folder.id)} aria-label="폴더 이름 수정">수정</button><button onClick={()=>deleteFolder(folder.id)} aria-label="폴더 삭제">×</button></div>)}</div>
             <div className="deck-picker-list">
               {appData.decks.map((item, index) => (
                 <button
@@ -430,7 +567,10 @@ function App() {
                   <h2>{deck.name}</h2>
                   <p>일본어 단어 · 한자 읽기와 뜻을 함께 익혀요.</p>
                 </div>
-                <div className="deck-overview-actions">
+                <div className="deck-overview-actions"><button className="button button-outline" onClick={()=>renameDeck(deck.id)}>단어장 설정</button>
+                  <select aria-label="기본 발음 언어" value={deck.language} onChange={e=>setAppData(d=>({...d,decks:d.decks.map(x=>x.id===deck.id?{...x,language:e.target.value}:x)}))}><option value="ja-JP">일본어</option><option value="en-US">영어(미국)</option><option value="en-GB">영어(영국)</option><option value="ko-KR">한국어</option><option value="zh-CN">중국어</option><option value="de-DE">독일어</option><option value="fr-FR">프랑스어</option><option value="es-ES">스페인어</option><option value="it-IT">이탈리아어</option></select>
+                  <select aria-label="단어장 폴더 변경" value={deck.parent} onChange={e=>setAppData(d=>({...d,decks:d.decks.map(x=>x.id===deck.id?{...x,parent:e.target.value}:x)}))}><option value="">루트</option>{appData.folders.map(f=><option key={f.id} value={f.id}>{folderPath(f.parent)} / {f.name}</option>)}</select>
+                  <button className="button button-outline" onClick={()=>deleteDeck(deck.id)}>삭제</button>
                   <button className="button button-outline" onClick={() => startStudy(deck.id)}>
                     <BookOpen size={16} /> 학습하기
                   </button>
@@ -454,9 +594,9 @@ function App() {
                 <div className="card-list-tools">
                   <label className="table-search">
                     <Search size={15} />
-                    <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="이 단어장에서 검색" />
+                    <input value={librarySearch} onChange={(event) => setLibrarySearch(event.target.value)} placeholder="이 단어장에서 검색" />
                   </label>
-                  <span className="filter-chip"><ListFilter size={14} /> 전체 카드</span>
+                  <button className="button button-outline" onClick={()=>setManageOpen(v=>!v)}><ListFilter size={14}/>{manageOpen?"간단히 보기":"카드 전체 관리"}</button>
                 </div>
               </div>
               <div className="card-table-head">
@@ -466,11 +606,11 @@ function App() {
                 <span />
               </div>
               <div className="card-table">
-                {filtered.slice(0, 30).map((card) => (
-                  <CardRow key={card.id} card={card} onToggleFavorite={toggleFavorite} />
+                {(manageOpen?filtered:filtered.slice(0,30)).map((card) => (
+                  <div key={card.id} className="card-edit-row"><CardRow card={card} onToggleFavorite={toggleFavorite} /><div className="card-inline-actions"><button onClick={()=>openEdit(card)}>수정</button><button onClick={()=>removeCard(card.id)}>삭제</button></div></div>
                 ))}
                 {filtered.length === 0 && <EmptyState title="검색 결과가 없어요" description="다른 단어로 검색해 보세요." />}
-                {filtered.length > 30 && <p className="list-note">검색 결과 중 30개를 표시하고 있어요. 더 구체적으로 검색해 보세요.</p>}
+                {!manageOpen&&filtered.length>30&&<button className="button button-outline" onClick={()=>setManageOpen(true)}>전체 {filtered.length}개 보기</button>}
               </div>
             </article>
           </div>
@@ -481,7 +621,7 @@ function App() {
 
   const renderStudy = () => {
     const currentDeck = appData.decks.find((deck) => deck.id === studyDeckId);
-    const title = studyScope === "favorites" ? "즐겨찾기 학습" : currentDeck?.name ?? "카드 학습";
+    const title = scopeLabel || currentDeck?.name || "카드 학습";
     const percent = studyTotal ? Math.round((studyDoneCount / studyTotal) * 100) : 0;
 
     if (studyDone) {
@@ -495,7 +635,8 @@ function App() {
             <div><strong>{studyTotal}</strong><span>학습 카드</span></div>
             <div><strong>{Math.floor(elapsedSeconds / 60)}분</strong><span>이번 세션 시간</span></div>
           </div>
-          <button className="button button-primary" onClick={() => setPage("home")}>홈으로 돌아가기 <ArrowRight size={16} /></button>
+          <button className="button button-primary" onClick={nextRound}>다음 회독 시작 · 전체 카드 원래 순서 <ArrowRight size={16} /></button>
+          <button className="button button-quiet" onClick={()=>setPage("home")}>홈으로 돌아가기</button>
         </section>
       );
     }
@@ -506,6 +647,7 @@ function App() {
 
     return (
       <section className="study-page">
+        <div className="study-main-column">
         <div className="study-topline">
           <button className="text-button" onClick={exitStudy}>
             <ArrowLeft size={16} /> 나가기
@@ -514,10 +656,10 @@ function App() {
             <span className="eyebrow">FOCUS MODE</span>
             <strong>{title}</strong>
           </div>
-          <div className="study-time"><Clock3 size={15} /> {Math.floor(elapsedSeconds / 60)}:{String(elapsedSeconds % 60).padStart(2, "0")}</div>
+          <div className="study-timer-buttons"><span className="study-time"><Clock3 size={15}/>{Math.floor(elapsedSeconds/60)}:{String(elapsedSeconds%60).padStart(2,"0")}</span><button className="button button-outline" onClick={()=>{setTimerRunning(v=>!v);if(!timerRunning)updateProgress(studyScope,p=>({...p,roundStartedAt:p.roundStartedAt??new Date().toISOString()}));}}>{timerRunning?"Ⅱ 일시정지":"▶ 공부 시작"}</button></div>
         </div>
 
-        <div className="study-progress-row">
+        <div className="study-progress-row"><span>{getProgress(appData.progress,studyScope).round??1}회독 · {passes}차 분류 · 이번 차수 {lapRemaining}개</span>
           <span>{studyDoneCount + 1} <i>/</i> {studyTotal}</span>
           <div className="progress-track"><span style={{ width: `${percent}%` }} /></div>
           <span>{percent}%</span>
@@ -534,7 +676,7 @@ function App() {
                 <>
                   <span className="flashcard-kicker">JAPANESE WORD</span>
                   <strong className="flashcard-front">{currentCard.front}</strong>
-                  <span className="flashcard-reading">{currentCard.reading || "읽는 법을 확인해 보세요"}</span>
+                  <span className="flashcard-reading">{flipped?currentCard.reading:"읽는 법과 뜻을 떠올려 보세요"}</span>
                 </>
               ) : (
                 <>
@@ -560,17 +702,23 @@ function App() {
             onClick={() => {
               if (!("speechSynthesis" in window)) return;
               const utterance = new SpeechSynthesisUtterance(currentCard.front);
-              utterance.lang = currentCard.voiceLang || "ja-JP";
+              utterance.lang = currentCard.voiceLang || appData.decks.find(d=>d.cards.some(c=>c.id===currentCard.id))?.language || "ja-JP";
               window.speechSynthesis.speak(utterance);
             }}
           >
             <Volume2 size={16} /> 발음 듣기
           </button>
+          {appData.collections.length>0&&<select className="button button-quiet" defaultValue="" aria-label="현재 카드를 모음에 추가" onChange={e=>{if(e.target.value)addToCollection(e.target.value,currentCard.id);e.target.value=""}}><option value="">＋ 내 모음에 추가</option>{appData.collections.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>}
           <button className={`button button-quiet ${currentCard.starred ? "is-favorite" : ""}`} onClick={() => toggleFavorite(currentCard.id)}>
             <Heart size={16} fill={currentCard.starred ? "currentColor" : "none"} /> 저장
           </button>
         </div>
 
+        <section className="typing-panel-v2">
+          <div className="typing-options"><label><input type="checkbox" checked={typingEnabled} onChange={e=>{setTypingEnabled(e.target.checked);setAppData(d=>({...d,decks:d.decks.map(x=>x.id===studyDeckId?{...x,typingSettings:{enabled:e.target.checked,target:typingTarget,allowRomaji:romajiEnabled}}:x)}))}}/> ⌨ 입력형 학습 사용</label><select value={typingTarget} onChange={e=>{const next=e.target.value as typeof typingTarget;setTypingTarget(next);resetQuiz();setAppData(d=>({...d,decks:d.decks.map(x=>x.id===studyDeckId?{...x,typingSettings:{enabled:typingEnabled,target:next,allowRomaji:romajiEnabled}}:x)}))}}><option value="reading">읽는 법</option><option value="meaning">뜻·정답</option><option value="both">둘 다</option></select><label><input type="checkbox" checked={romajiEnabled} onChange={e=>{setRomajiEnabled(e.target.checked);setAppData(d=>({...d,decks:d.decks.map(x=>x.id===studyDeckId?{...x,typingSettings:{enabled:typingEnabled,target:typingTarget,allowRomaji:e.target.checked}}:x)}))}}/> 로마자 인정</label></div>
+          {typingEnabled&&<><div className="typing-fields">{typingTarget!=="meaning"&&<input value={quizReading} onChange={e=>setQuizReading(e.target.value)} placeholder="읽는 법 · ひらがな / romaji"/>}{typingTarget!=="reading"&&<textarea value={quizMeaning} onChange={e=>setQuizMeaning(e.target.value)} placeholder="뜻·정답 입력" rows={2}/>}</div><div className="mini-actions"><button className="button button-primary" onClick={gradeQuiz}>입력한 답 확인</button><button className="button button-outline" onClick={()=>setQuizResult(`읽는 법: ${currentCard.reading}\n뜻: ${currentCard.back}`)}>답 바로 보기</button></div>{quizResult&&<div className="quiz-result-v2">{quizResult}</div>}</>}
+        </section>
+        <div className="study-management-actions"><button className="button button-outline" onClick={()=>reorderQueue(false)}>☷ 원래 순서</button><button className="button button-outline" onClick={()=>reorderQueue(true)}>⇄ 카드 섞기</button><button className="button button-outline" onClick={resetRound}>⟳ 이번 회독 다시 시작</button><button className="button button-outline" onClick={()=>openEdit(currentCard)}>✎ 이 카드 수정</button></div>
         <div className="study-answer-actions">
           <button className="answer-button answer-review" onClick={markReview}>
             <RotateCcw size={18} />
@@ -582,6 +730,8 @@ function App() {
           </button>
         </div>
         <p className="study-footnote"><CircleHelp size={13} /> 스페이스바를 눌러 카드 앞면과 뒷면을 전환할 수 있어요.</p>
+        </div>
+        <Scratchpad key={padResetKey} />
       </section>
     );
   };
@@ -594,22 +744,23 @@ function App() {
           <h1>즐겨찾기</h1>
           <p>다시 보고 싶은 단어를 한곳에 모아 복습해요.</p>
         </div>
-        <button className="button button-primary" disabled={favoriteCards.length === 0} onClick={() => startStudy(selectedDeck?.id ?? "", "favorites")}>
+        <button className="button button-primary" disabled={!selectedDeck?.cards.some(c=>c.starred)} onClick={() => startStudy(selectedDeck?.id ?? "", "favorites")}>
           <BookOpen size={16} /> 즐겨찾기 학습
         </button>
       </section>
+      <div className="csv-toolbar"><label>즐겨찾기 단어장 <select value={selectedDeckId} onChange={e=>setSelectedDeckId(e.target.value)}>{appData.decks.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label></div>
       <section className="panel card-list-panel">
         <div className="card-list-heading">
-          <div><h3>저장한 카드</h3><span>{favoriteCards.length}개의 카드</span></div>
+          <div><h3>저장한 카드</h3><span>{selectedDeck?.cards.filter(c=>c.starred).length??0}개의 카드</span></div>
           <span className="soft-tag"><Heart size={13} /> FAVORITES</span>
         </div>
         <div className="card-table-head"><span>단어 / 읽는 법</span><span>뜻</span><span>단어장</span><span /></div>
         <div className="card-table">
-          {favoriteCards.map((card) => {
+          {(selectedDeck?.cards.filter(c=>c.starred)??[]).map((card) => {
             const owner = appData.decks.find((deck) => deck.cards.some((item) => item.id === card.id));
             return <CardRow key={card.id} card={card} deckName={owner?.name} onToggleFavorite={toggleFavorite} />;
           })}
-          {favoriteCards.length === 0 && <EmptyState title="아직 저장한 카드가 없어요" description="라이브러리에서 하트 아이콘을 눌러 카드를 저장해 보세요." />}
+          {!selectedDeck?.cards.some(c=>c.starred) && <EmptyState title="아직 저장한 카드가 없어요" description="라이브러리에서 하트 아이콘을 눌러 카드를 저장해 보세요." />}
         </div>
       </section>
     </>
@@ -637,8 +788,10 @@ function App() {
         {appData.collections.map((collection) => (
           <article className="collection-card panel" key={collection.id}>
             <div className="collection-card-icon"><Layers3 size={20} /></div>
-            <h3>{collection.name}</h3>
+            <h3>{collection.name}</h3><button className="small-inline-button" onClick={()=>{const name=prompt("모음 이름 변경",collection.name);if(name?.trim())setAppData(d=>({...d,collections:d.collections.map(c=>c.id===collection.id?{...c,name:name.trim()}:c)}))}}>이름 변경</button>
             <p>{collection.cardIds.length}개의 카드</p>
+            {collection.cardIds.length>0&&<div className="collection-card-items">{collection.cardIds.slice(0,15).map(id=>{const card=allCards.find(c=>c.id===id);return card?<div key={id}><span>{card.front} · {card.back}</span><button onClick={()=>setAppData(d=>({...d,collections:d.collections.map(c=>c.id===collection.id?{...c,cardIds:c.cardIds.filter(x=>x!==id)}:c)}))} aria-label="모음에서 제외">×</button></div>:null})}{collection.cardIds.length>15&&<small>외 {collection.cardIds.length-15}개</small>}</div>}
+            <button className="button button-primary" disabled={!collection.cardIds.length} onClick={()=>startStudy(selectedDeck?.id??"", "collection", collection.id)}>이 모음 학습하기</button>
             <div className="collection-card-footer">
               <select
                 aria-label={`${collection.name}에 카드 추가`}
@@ -675,11 +828,13 @@ function App() {
           </div>
           <div className="kanji-count"><strong>{kanjiData.length}</strong><span>한자 항목</span></div>
         </section>
+        <div className="kanji-actions"><button className="button button-outline" onClick={()=>setPracticeMode(false)}>☷ 한자 목록</button><button className="button button-outline" onClick={()=>{setPracticeMode(true);setPracticeIndex(0);setPracticeReveal(false)}}>✏ 읽기 셀프테스트</button><button className="button button-outline" onClick={()=>{const rows:unknown[][]=[["한자","음독","훈독","힌트","예시","읽는법","뜻"]];for(const item of kanjiData){for(const e of item.examples)rows.push([item.char,item.on,item.kun,item.note,e.word,e.reading,e.meaning]);}writeCsv(rows,"리콜카드_한자.csv")}}>↓ 한자 CSV</button></div>
         <section className="kanji-toolbar panel">
           <label className="table-search kanji-search"><Search size={16} /><input value={kanjiQuery} onChange={(event) => setKanjiQuery(event.target.value)} placeholder="한자, 음독, 훈독, 예시 단어 검색" /></label>
           <span>{filtered.length}개 결과</span>
         </section>
-        <section className="kanji-grid">
+        {practiceMode&&filtered.length>0&&<section className="kanji-practice panel"><span>{practiceIndex%filtered.length+1} / {filtered.length}</span><strong>{filtered[practiceIndex%filtered.length].char}</strong><p>대표 음독과 훈독을 떠올려 보세요.</p><button className="button button-primary" onClick={()=>setPracticeReveal(v=>!v)}>{practiceReveal?"다시 가리기":"음독·훈독·단어 확인"}</button>{practiceReveal&&<div className="kanji-answer"><p>음독: {filtered[practiceIndex%filtered.length].on}</p><p>훈독: {filtered[practiceIndex%filtered.length].kun}</p>{filtered[practiceIndex%filtered.length].examples.map((e,i)=><div key={i}>{e.word} ({e.reading}) · {e.meaning}</div>)}</div>}<div className="mini-actions"><button className="button button-outline" onClick={()=>{setPracticeIndex(i=>(i+filtered.length-1)%filtered.length);setPracticeReveal(false)}}>← 이전</button><button className="button button-primary" onClick={()=>{setPracticeIndex(i=>(i+1)%filtered.length);setPracticeReveal(false)}}>다음 →</button></div></section>}
+        {!practiceMode&&<section className="kanji-grid">
           {filtered.map((item) => (
             <button className="kanji-card panel" key={item.char} onClick={() => setSelectedKanji(item)}>
               <span className="kanji-char">{item.char}</span>
@@ -688,7 +843,7 @@ function App() {
               <span className="kanji-card-bottom"><small>예시 {item.examples.length}개</small><ArrowRight size={14} /></span>
             </button>
           ))}
-        </section>
+        </section>}
         {filtered.length === 0 && <EmptyState title="검색 결과가 없어요" description="다른 한자나 읽는 법으로 검색해 보세요." />}
       </>
     );
@@ -715,6 +870,7 @@ function App() {
           <StatCard label="다시 볼 카드" value={formatNumber(Object.values(appData.progress).reduce((sum, item) => sum + item.review.length, 0))} hint="복습 대상으로 표시" icon={<RotateCcw size={19} />} tone="gold" />
           <StatCard label="누적 학습 시간" value={`${Math.floor(totalStudySeconds / 60)}분`} hint="저장된 학습 시간" icon={<Clock3 size={19} />} tone="lavender" />
         </section>
+        <div className="csv-toolbar"><select value={csvScope} onChange={e=>setCsvScope(e.target.value as typeof csvScope)}><option value="current">현재 단어장</option><option value="all">전체 라이브러리</option></select><button className="button button-outline" onClick={exportStudyCsv}>↓ 공부 기록 CSV</button></div>
         <section className="panel deck-progress-panel">
           <div className="section-heading"><div><span className="eyebrow">BY DECK</span><h2>단어장별 진행률</h2></div><span className="soft-tag">N1 · 20 DAYS</span></div>
           <div className="deck-progress-list">
@@ -728,6 +884,7 @@ function App() {
             ))}
           </div>
         </section>
+        <section className="panel study-history-panel"><h2>회독별 공부 기록</h2><div className="history-scroll"><table><thead><tr><th>단어장</th><th>회독</th><th>상태</th><th>공부시간</th><th>알고 있음</th><th>차수</th><th>오답</th></tr></thead><tbody>{appData.decks.flatMap(deck=>(getProgress(appData.progress,deck.id).roundHistory??[]).map((record,index)=><tr key={`${deck.id}-${index}`}><td>{deck.name}</td><td>{record.round}</td><td>{record.status}</td><td>{Math.floor(record.seconds/60)}분 {record.seconds%60}초</td><td>{record.known}/{record.cards}</td><td>{record.passes}</td><td>{record.mistakes}</td></tr>))}{!appData.decks.some(d=>(getProgress(appData.progress,d.id).roundHistory??[]).length>0)&&<tr><td colSpan={7}>완료한 회독이 아직 없어요.</td></tr>}</tbody></table></div></section>
       </>
     );
   };
@@ -746,6 +903,7 @@ function App() {
       />
       <main className="main-area">
         <Topbar page={page} search={search} onSearchChange={setSearch} onExport={exportData} onImport={importData} />
+        <div className="legacy-reference-link"><a href="/recall-card-original-reference.html" target="_blank" rel="noreferrer">↗ 원본 HTML 화면 열기 (기능 비교용)</a></div>
         {search.trim() && page !== "study" ? (
           <div className="content-area">
             <section className="page-intro-row">
@@ -777,12 +935,13 @@ function App() {
       {showAddCard && (
         <div className="modal-backdrop" onClick={() => setShowAddCard(false)}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-heading"><div><span className="eyebrow">NEW FLASHCARD</span><h2>새 카드 추가</h2></div><button className="icon-button" onClick={() => setShowAddCard(false)}><X size={18} /></button></div>
+            <div className="modal-heading"><div><span className="eyebrow">NEW FLASHCARD</span><h2>{editCardId?"카드 수정":"새 카드 추가"}</h2></div><button className="icon-button" onClick={() => setShowAddCard(false)}><X size={18} /></button></div>
             <p className="modal-description">{selectedDeck?.name} 단어장에 새 카드를 추가합니다.</p>
             <label className="form-field"><span>앞면 · 일본어</span><input autoFocus value={newCard.front} onChange={(event) => setNewCard({ ...newCard, front: event.target.value })} placeholder="예: 挑戦" /></label>
             <label className="form-field"><span>읽는 법</span><input value={newCard.reading} onChange={(event) => setNewCard({ ...newCard, reading: event.target.value })} placeholder="예: ちょうせん" /></label>
+            <label className="form-field"><span>개별 발음 언어</span><select value={newCard.voiceLang} onChange={e=>setNewCard({...newCard,voiceLang:e.target.value})}><option value="">단어장 기본값</option><option value="ja-JP">일본어</option><option value="en-US">영어</option><option value="ko-KR">한국어</option><option value="zh-CN">중국어</option></select></label>
             <label className="form-field"><span>뒷면 · 뜻</span><textarea value={newCard.back} onChange={(event) => setNewCard({ ...newCard, back: event.target.value })} placeholder="예: 도전" rows={3} /></label>
-            <div className="modal-actions"><button className="button button-quiet" onClick={() => setShowAddCard(false)}>취소</button><button className="button button-primary" onClick={addCard}><Plus size={16} /> 카드 저장</button></div>
+            <div className="modal-actions"><button className="button button-quiet" onClick={() => setShowAddCard(false)}>취소</button><button className="button button-primary" onClick={addCard}><Plus size={16} /> {editCardId?"수정 저장":"카드 저장"}</button></div>
           </div>
         </div>
       )}
