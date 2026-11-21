@@ -8,7 +8,6 @@ type Stroke = { points: Point[]; mode: "pen" | "eraser"; color: string; size: nu
 const PEN_COLORS = ["#000000", "#2563eb", "#dc2626", "#16a34a", "#e4c3e2ff", "#b6cdeeff"] as const;
 type Paper = "grid" | "lines" | "blank";
 
-let penDetected = false;
 
 // Keep stroke coordinates in logical CSS pixels so the image stays sharp when resized.
 export function Scratchpad() {
@@ -277,10 +276,7 @@ export function Scratchpad() {
 
   const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     // Hover alone must not disable finger writing.
-
-    if (event.pointerType === "pen") {
-      penDetected = true;
-    } 
+    
     if (event.pointerId !== pointerIdRef.current) return;
     event.preventDefault();
     if (modeRef.current === "eraser") {
