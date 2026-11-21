@@ -2,12 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { Eraser, Maximize2, Minimize2, PenLine, Trash2, Undo2 } from "lucide-react";
 
-// Store coordinates as 0..1 ratios, matching the original HTML canvas.
+// Store stroke coordinates in CSS pixels so expanding the paper does not rescale handwriting.
 type Point = { x: number; y: number };
 type Stroke = { points: Point[]; mode: "pen" | "eraser"; color: string; size: number };
 const PEN_COLORS = ["#000000", "#2563eb", "#dc2626", "#16a34a", "#e4c3e2ff", "#b6cdeeff"] as const;
 type Paper = "grid" | "lines" | "blank";
-
 
 // Keep stroke coordinates in logical CSS pixels so the image stays sharp when resized.
 export function Scratchpad() {
@@ -142,13 +141,13 @@ export function Scratchpad() {
       if (stroke.points.length === 1) {
         const dot = stroke.points[0];
         ctx.beginPath();
-        ctx.arc(dot.x * rect.width, dot.y * rect.height, ctx.lineWidth / 2, 0, Math.PI * 2);
+        ctx.arc(dot.x, dot.y, ctx.lineWidth / 2, 0, Math.PI * 2);
         ctx.fill();
       } else if (stroke.points.length > 1) {
         ctx.beginPath();
-        ctx.moveTo(stroke.points[0].x * rect.width, stroke.points[0].y * rect.height);
+        ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
         for (let i = 1; i < stroke.points.length; i++) {
-          ctx.lineTo(stroke.points[i].x * rect.width, stroke.points[i].y * rect.height);
+          ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
         }
         ctx.stroke();
       }
@@ -167,7 +166,7 @@ export function Scratchpad() {
 
   const getPoint = (event: ReactPointerEvent<HTMLCanvasElement>): Point => {
     const rect = event.currentTarget.getBoundingClientRect();
-    return { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) };
+    return { x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)), y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)) };
   };
 
   // The original HTML gathered coalesced pointer samples for smooth fast handwriting.
@@ -179,8 +178,8 @@ export function Scratchpad() {
       : [];
     const events = samples.length ? samples : [native];
     return events.map(sample => ({
-      x: Math.max(0, Math.min(1, (sample.clientX - rect.left) / rect.width)),
-      y: Math.max(0, Math.min(1, (sample.clientY - rect.top) / rect.height)),
+      x: Math.max(0, Math.min(rect.width, sample.clientX - rect.left)),
+      y: Math.max(0, Math.min(rect.height, sample.clientY - rect.top)),
     }));
   };
 
@@ -188,11 +187,9 @@ export function Scratchpad() {
     const radius = 18;
     const remaining = strokesRef.current.filter(stroke => !stroke.points.some((next,index) => {
       const previous = stroke.points[Math.max(0,index-1)];
-      const rect = canvasRef.current?.getBoundingClientRect();
-      const w = rect?.width ?? 1, h = rect?.height ?? 1;
-      const dx = (next.x-previous.x)*w, dy = (next.y-previous.y)*h;
-      const t = Math.max(0, Math.min(1, (((point.x-previous.x)*w)*dx+((point.y-previous.y)*h)*dy)/(dx*dx+dy*dy||1)));
-      return Math.hypot((point.x-previous.x)*w-t*dx,(point.y-previous.y)*h-t*dy) < radius;
+      const dx = next.x - previous.x, dy = next.y - previous.y;
+      const t = Math.max(0, Math.min(1, ((point.x-previous.x)*dx+(point.y-previous.y)*dy)/(dx*dx+dy*dy||1)));
+      return Math.hypot(point.x-previous.x-t*dx, point.y-previous.y-t*dy) < radius;
     }));
     if (remaining.length !== strokesRef.current.length) {
       strokesRef.current = remaining;
@@ -201,82 +198,38 @@ export function Scratchpad() {
     }
   };
 
-  
-  const onPointerDown = (
-    event: ReactPointerEvent<HTMLCanvasElement>
-  ) => {
+  const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     event.preventDefault();
-    event.stopPropagation();
 
-    const canvas = event.currentTarget;
-    const pointerType = event.pointerType;
+    // 펜 우선 ON: 펜이 먼저 닿았는지와 관계없이 손가락·손바닥 입력 차단.
+    if (penFirstRef.current && event.pointerType === "touch") return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
 
-    // 펜 우선 ON이면 손가락과 손바닥은
-    // 펜 사용 여부와 관계없이 처음부터 무시
-    if (
-      penFirstRef.current &&
-      pointerType === "touch"
-    ) {
-      return;
-    }
-
-    // 마우스는 왼쪽 버튼만 허용
-    if (
-      pointerType === "mouse" &&
-      event.button !== 0
-    ) {
-      return;
-    }
-
-    // 펜 우선 OFF 상태에서 손가락으로 먼저 쓰다가
-    // 펜이 닿으면 펜으로 전환
-    if (
-      pointerType === "pen" &&
-      pointerIdRef.current !== null &&
-      pointerTypeRef.current === "touch"
-    ) {
-      const previousId = pointerIdRef.current;
-
-      if (canvas.hasPointerCapture(previousId)) {
-        canvas.releasePointerCapture(previousId);
+    // 펜 우선 OFF에서 손가락으로 시작했다면 펜이 들어올 때 펜으로 전환.
+    if (event.pointerType === "pen" && pointerIdRef.current !== null && pointerTypeRef.current === "touch") {
+      const previousPointerId = pointerIdRef.current;
+      if (event.currentTarget.hasPointerCapture(previousPointerId)) {
+        event.currentTarget.releasePointerCapture(previousPointerId);
       }
-
       activeRef.current = null;
       pointerIdRef.current = null;
       pointerTypeRef.current = "";
       draw();
     }
 
-    // 이미 필기 중이라면 다른 포인터는 무시
-    if (pointerIdRef.current !== null) {
-      return;
-    }
-
+    // 이미 획을 그리고 있으면 두 번째 입력은 무시.
+    if (pointerIdRef.current !== null) return;
     pointerIdRef.current = event.pointerId;
-    pointerTypeRef.current = pointerType;
-
-    canvas.setPointerCapture(event.pointerId);
+    pointerTypeRef.current = event.pointerType;
     setWriting(true);
-
-    if (modeRef.current === "eraser") {
-      eraseAt(getPoint(event));
-      return;
-    }
-
-    activeRef.current = {
-      mode: "pen",
-      points: [getPoint(event)],
-      color: penColorRef.current,
-      size: penSizeRef.current,
-    };
-
+    event.currentTarget.setPointerCapture(event.pointerId);
+    if (modeRef.current === "eraser") { eraseAt(getPoint(event)); return; }
+    // 색과 굵기는 획마다 저장하므로 설정 변경 후에도 이전 획을 유지합니다.
+    activeRef.current = { mode: "pen", points: [getPoint(event)], color: penColorRef.current, size: penSizeRef.current };
     draw();
   };
 
-
   const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    // Hover alone must not disable finger writing.
-    
     if (event.pointerId !== pointerIdRef.current) return;
     event.preventDefault();
     if (modeRef.current === "eraser") {
@@ -285,9 +238,7 @@ export function Scratchpad() {
     }
     if (!activeRef.current) return;
     activeRef.current.points.push(...getMovePoints(event));
-    draw(
-      
-    );
+    draw();
   };
   const onPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (event.pointerId !== pointerIdRef.current) return;
@@ -365,7 +316,7 @@ export function Scratchpad() {
             <button className={`scratchpad-tool ${mode === "pen" ? "active" : ""}`} onClick={() => chooseMode("pen")} aria-pressed={mode === "pen"}><PenLine size={15} /> 펜</button>
             <button className={`scratchpad-tool ${mode === "eraser" ? "active" : ""}`} onClick={() => chooseMode("eraser")} aria-pressed={mode === "eraser"}><Eraser size={15} /> 획 지우개</button>
             <button className="scratchpad-tool" onClick={undo} disabled={!strokeCount}><Undo2 size={15} /> 한 획 취소</button>
-            <button type="button" className={`scratchpad-tool scratchpad-pen-first ${penFirst ? "active" : ""}`} onClick={togglePenFirst} aria-pressed={penFirst} title="펜으로 쓰는 동안 손바닥 입력을 무시합니다">✍ 펜 우선 {penFirst ? "ON" : "OFF"}</button>
+            <button type="button" className={`scratchpad-tool scratchpad-pen-first ${penFirst ? "active" : ""}`} onClick={togglePenFirst} aria-pressed={penFirst} title="ON: 펜·마우스만 필기 / OFF: 손가락 필기도 허용">✍ 펜 우선 {penFirst ? "ON" : "OFF"}</button>
           </div>
           <div className="scratchpad-tool-row">
             <label className="scratchpad-paper-select">

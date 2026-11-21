@@ -586,9 +586,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 /* Inline meaning under the kanji, without flipping the card. */
 .flashcard-inline-meaning {
   display: block;
-  margin-top: 12px;
   color: #1d4f82;
-  font-size: clamp(24px, 2.2vw, 24px);
+  font-size: clamp(26px, 2.2vw, 24px);
   font-weight: 600;
   white-space: pre-wrap;
 }
@@ -657,4 +656,25 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
+}
+/* App text is nonselectable except for the study card and editable fields. */
+.app-shell, .app-shell * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none;
+}
+.app-shell .flashcard-content, .app-shell .flashcard-content * {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default;
+}
+.app-shell input, .app-shell textarea, .app-shell [contenteditable="true"] {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default;
+}
+.app-shell .scratchpad, .app-shell .scratchpad * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
 }

@@ -771,13 +771,12 @@ function App() {
         <div className="study-word-banner">
           <button type="button" className="study-word-title" aria-expanded={showInlineMeaning} onClick={() => setShowInlineMeaning((value) => !value)}>
             <strong>{currentCard.front}</strong>
-            {showInlineMeaning && <span className="study-word-inline-meaning">{currentCard.back}</span>}
           </button>
           <button type="button" className={showReading ? "shown" : ""} onClick={() => setShowReading((value) => !value)}>
             <small>읽는 법</small>{showReading ? (currentCard.reading || "(없음)") : "눌러서 보기"}
           </button>
           <button type="button" className={showInlineMeaning ? "shown" : ""} onClick={() => setShowInlineMeaning((value) => !value)}>
-            <small>뜻</small>{showInlineMeaning ? "가리기" : "눌러서 보기"}
+            <small>뜻</small>{showInlineMeaning ? currentCard.back : "눌러서 보기"}
           </button>
         </div>
         <Scratchpad key={padResetKey} />
