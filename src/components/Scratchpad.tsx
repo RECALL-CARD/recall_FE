@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
 import { Eraser, Maximize2, Minimize2, PenLine, Trash2, Undo2 } from "lucide-react";
 
 // Store stroke coordinates in CSS pixels so expanding the paper does not rescale handwriting.
@@ -7,6 +6,10 @@ type Point = { x: number; y: number };
 type Stroke = { points: Point[]; mode: "pen" | "eraser"; color: string; size: number };
 const PEN_COLORS = ["#000000", "#2563eb", "#dc2626", "#16a34a", "#e4c3e2ff", "#b6cdeeff"] as const;
 type Paper = "grid" | "lines" | "blank";
+const INTERACTION_GUARD_MS = 2500;
+
+// Apple Pencil이 pen 이벤트로 감지된 뒤 손가락/손바닥 터치를 무시합니다.
+let penDetected = false;
 
 // Keep stroke coordinates in logical CSS pixels so the image stays sharp when resized.
 export function Scratchpad() {
@@ -20,12 +23,9 @@ export function Scratchpad() {
   const penFirstRef = useRef(true);
   const penColorRef = useRef<string>("#000000");
   const penSizeRef = useRef(3.4);
-  const blockedPointersRef = useRef(new Set<number>());
-  const blockedClickUntilRef = useRef(0);
-  // 필기 중 단어 카드의 손바닥 터치로 텍스트가 선택되는 것을 막습니다.
-  const handwritingGuardUntilRef = useRef(0);
-  const handwritingGuardTimerRef = useRef<number | null>(null);
-  const handwritingGuardPageRef = useRef<HTMLElement | null>(null);
+  const interactionGuardTimerRef = useRef<number | null>(null);
+  const interactionGuardPageRef = useRef<HTMLElement | null>(null);
+  const pageGuardHandlerRef = useRef<((event: Event) => void) | null>(null);
   const [strokeCount, setStrokeCount] = useState(0);
   const [mode, setMode] = useState<"pen" | "eraser">("pen");
   const [paper, setPaper] = useState<Paper>("grid");
@@ -34,149 +34,102 @@ export function Scratchpad() {
   const [penColor, setPenColor] = useState<string>("#000000");
   const [penSize, setPenSize] = useState(3.4);
   const [writing, setWriting] = useState(false);
+  const [interactionGuard, setInteractionGuard] = useState(false);
+  const [leftHanded, setLeftHanded] = useState(() => {
+    try {
+      return window.localStorage.getItem("recall-card-scratchpad-left-handed") === "true";
+    } catch {
+      return false;
+    }
+  });
 
-  // 시작 직후에는 React 렌더링을 기다리지 않고 선택 금지 클래스를 붙입니다.
-  const beginHandwritingGuard = () => {
-    if (handwritingGuardTimerRef.current !== null) {
-      window.clearTimeout(handwritingGuardTimerRef.current);
-      handwritingGuardTimerRef.current = null;
+  // 왼손잡이 설정을 기억하고, 학습 화면의 좌우 배치를 바꿉니다.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "recall-card-scratchpad-left-handed",
+        String(leftHanded)
+      );
+    } catch {
+      // 저장이 제한된 브라우저에서도 현재 화면의 모드 전환은 동작합니다.
     }
-    handwritingGuardUntilRef.current = Number.POSITIVE_INFINITY;
-    const page = padRef.current?.closest<HTMLElement>(".study-page");
-    if (page) {
-      handwritingGuardPageRef.current = page;
-      page.classList.add("scratchpad-handwriting-guard");
-    }
-    window.getSelection()?.removeAllRanges();
-  };
 
-  // 펜을 떼는 순간에도 손바닥이 카드에 닿아 있을 수 있어 잠깐 보호합니다.
-  const endHandwritingGuard = () => {
-    if (handwritingGuardTimerRef.current !== null) {
-      window.clearTimeout(handwritingGuardTimerRef.current);
-    }
-    handwritingGuardUntilRef.current = Date.now() + 1000;
-    handwritingGuardTimerRef.current = window.setTimeout(() => {
-      if (pointerIdRef.current === null) {
-        handwritingGuardPageRef.current?.classList.remove("scratchpad-handwriting-guard");
+    const studyPage = padRef.current?.closest<HTMLElement>(".study-page");
+    if (!studyPage) return;
+
+    studyPage.classList.toggle("scratchpad-left-handed", leftHanded);
+
+    return () => {
+      studyPage.classList.remove("scratchpad-left-handed");
+    };
+  }, [leftHanded]);
+
+  const removePageInteractionGuard = () => {
+    const page = interactionGuardPageRef.current;
+    const handler = pageGuardHandlerRef.current;
+
+    if (page && handler) {
+      // Pointer/touch events must never be swallowed here.
+      // The backdrop blocks outside taps; pointer completion is handled by
+      // the canvas and the window fallback below.
+      const events = ["selectstart", "contextmenu", "dragstart"];
+      for (const name of events) {
+        page.removeEventListener(name, handler, true);
       }
-      handwritingGuardTimerRef.current = null;
-    }, 1000);
+    }
+
+    page?.classList.remove("scratchpad-handwriting-guard");
+    pageGuardHandlerRef.current = null;
+    interactionGuardPageRef.current = null;
   };
 
   useEffect(() => () => {
-    if (handwritingGuardTimerRef.current !== null) {
-      window.clearTimeout(handwritingGuardTimerRef.current);
+    if (interactionGuardTimerRef.current !== null) {
+      window.clearTimeout(interactionGuardTimerRef.current);
     }
-    handwritingGuardPageRef.current?.classList.remove("scratchpad-handwriting-guard");
+    removePageInteractionGuard();
   }, []);
 
-  // 확대 중 또는 실제 필기 중에는 필기장 바깥의 터치·클릭·스크롤을 차단해요.
-  // 포인터 ID는 ref에서 즉시 확인하므로 첫 획을 그리는 순간부터 적용돼요.
-  useEffect(() => {
-    const insidePad = (target: EventTarget | null) =>
-      target instanceof Node && (
-        !!padRef.current?.contains(target) ||
-        (expanded && target instanceof Element && !!target.closest(".study-word-banner"))
-      );
-    const isLocked = () =>
-      expanded || pointerIdRef.current !== null || blockedPointersRef.current.size > 0;
-    const isHandwritingGuarded = () =>
-      pointerIdRef.current !== null || Date.now() < handwritingGuardUntilRef.current;
-    const isStudyCard = (target: EventTarget | null) =>
-      target instanceof Element && !!target.closest(".flashcard");
+  const startInteractionGuard = () => {
+    if (interactionGuardTimerRef.current !== null) {
+      window.clearTimeout(interactionGuardTimerRef.current);
+      interactionGuardTimerRef.current = null;
+    }
+    const page = padRef.current?.closest<HTMLElement>(".study-page");
+    if (page) {
+      interactionGuardPageRef.current = page;
+      page.classList.add("scratchpad-handwriting-guard");
 
-    const blockOutside = (event: Event) => {
-      const pointer = event as PointerEvent;
-      const pointerId = typeof pointer.pointerId === "number" ? pointer.pointerId : null;
-      const blockedPointer = pointerId !== null && blockedPointersRef.current.has(pointerId);
-      const background = !insidePad(event.target);
-      const suppressClick = event.type === "click" && Date.now() < blockedClickUntilRef.current;
-      const guardedCard = isHandwritingGuarded() && isStudyCard(event.target);
+      // 필기 중에는 필기장 바깥의 텍스트 선택/공유 메뉴만 차단합니다.
+      // pointer/touch 이벤트는 여기서 가로채지 않아 펜 종료 이벤트가
+      // Canvas 또는 window fallback까지 반드시 도달하게 합니다.
+      if (!pageGuardHandlerRef.current) {
+        const handler = (event: Event) => {
+          const target = event.target;
+          const insidePad = target instanceof Node && !!padRef.current?.contains(target);
+          if (insidePad) return;
 
-      if (event.type === "selectstart" || event.type === "contextmenu" || event.type === "dragstart") {
-        // 평소에는 단어 카드 복사 허용, 필기할 때만 카드 선택 차단.
-        if ((event.target instanceof Node && padRef.current?.contains(event.target)) || guardedCard) {
           if (event.cancelable) event.preventDefault();
-          event.stopImmediatePropagation();
-          return;
+          event.stopPropagation();
+        };
+        pageGuardHandlerRef.current = handler;
+        const events = ["selectstart", "contextmenu", "dragstart"];
+        for (const name of events) {
+          page.addEventListener(name, handler, { capture: true, passive: false });
         }
       }
+    }
+    setInteractionGuard(true);
+  };
 
-      // 손바닥이 펜 뒤에 닿거나 펜을 뗀 직후 닿아도 카드에서 길게 누르기가 시작되지 않게 합니다.
-      const cardTouch = guardedCard && (
-        event.type.startsWith("touch") ||
-        (event.type.startsWith("pointer") && pointer.pointerType === "touch")
-      );
-      if (cardTouch) {
-        if (event.type === "pointerdown" && pointerId !== null) {
-          blockedPointersRef.current.add(pointerId);
-        }
-        if ((event.type === "pointerup" || event.type === "pointercancel") && blockedPointer) {
-          blockedPointersRef.current.delete(pointerId!);
-          blockedClickUntilRef.current = Date.now() + 350;
-        }
-        if (event.cancelable) event.preventDefault();
-        event.stopImmediatePropagation();
-        return;
-      }
-
-      // 바깥에서 시작한 다른 손가락이 필기장 안에서 끝나더라도 차단을 해제해야 해요.
-      if (!background && !blockedPointer) return;
-      if (!isLocked() && !blockedPointer && !suppressClick) return;
-
-      if (event.type === "pointerdown" && pointerId !== null && background) {
-        blockedPointersRef.current.add(pointerId);
-      }
-      if (event.type === "pointerup" || event.type === "pointercancel") {
-        if (blockedPointer) {
-          blockedPointersRef.current.delete(pointerId!);
-          blockedClickUntilRef.current = Date.now() + 350;
-        }
-      }
-      if (event.cancelable) event.preventDefault();
-      event.stopImmediatePropagation();
-    };
-
-    const blockKeyboard = (event: KeyboardEvent) => {
-      if (!isLocked()) return;
-      if (event.key === "Escape" && expanded) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        setExpanded(false);
-        return;
-      }
-      const textShortcut = (event.ctrlKey || event.metaKey) &&
-        ["a", "c", "v", "x"].includes(event.key.toLowerCase());
-      if (insidePad(event.target) && !textShortcut) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    };
-
-    const events = [
-      "pointerdown", "pointermove", "pointerup", "pointercancel",
-      "mousedown", "mousemove", "mouseup", "click", "dblclick",
-      "touchstart", "touchmove", "touchend", "touchcancel",
-      "wheel", "contextmenu", "selectstart", "dragstart",
-    ];
-    // 이미 시작된 선택(손바닥이 펜보다 먼저 닿은 경우)도 필기 시작 시 해제합니다.
-    const clearSelectionDuringHandwriting = () => {
-      if (isHandwritingGuarded()) {
-        const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0) selection.removeAllRanges();
-      }
-    };
-
-    const options: AddEventListenerOptions = { capture: true, passive: false };
-    for (const name of events) document.addEventListener(name, blockOutside, options);
-    document.addEventListener("selectionchange", clearSelectionDuringHandwriting);
-    window.addEventListener("keydown", blockKeyboard, true);
-    return () => {
-      for (const name of events) document.removeEventListener(name, blockOutside, true);
-      document.removeEventListener("selectionchange", clearSelectionDuringHandwriting);
-      window.removeEventListener("keydown", blockKeyboard, true);
-    };
-  }, [expanded]);
+  const finishInteractionGuard = () => {
+    if (interactionGuardTimerRef.current !== null) {
+      window.clearTimeout(interactionGuardTimerRef.current);
+      interactionGuardTimerRef.current = null;
+    }
+    setInteractionGuard(false);
+    removePageInteractionGuard();
+  };
 
   useEffect(() => {
     if (!expanded) return;
@@ -237,33 +190,35 @@ export function Scratchpad() {
     return () => observer.disconnect();
   }, [expanded, draw]);
 
-  const getPoint = (event: ReactPointerEvent<HTMLCanvasElement>): Point => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return { x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)), y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)) };
-  };
-
-  // The original HTML gathered coalesced pointer samples for smooth fast handwriting.
-  const getMovePoints = (event: ReactPointerEvent<HTMLCanvasElement>): Point[] => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const native = event.nativeEvent;
-    const samples = typeof native.getCoalescedEvents === "function"
-      ? native.getCoalescedEvents()
-      : [];
-    const events = samples.length ? samples : [native];
-    return events.map(sample => ({
-      x: Math.max(0, Math.min(rect.width, sample.clientX - rect.left)),
-      y: Math.max(0, Math.min(rect.height, sample.clientY - rect.top)),
-    }));
+  const getPoint = (event: PointerEvent): Point => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    return {
+      x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
+      y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
+    };
   };
 
   const eraseAt = (point: Point) => {
     const radius = 18;
-    const remaining = strokesRef.current.filter(stroke => !stroke.points.some((next,index) => {
-      const previous = stroke.points[Math.max(0,index-1)];
-      const dx = next.x - previous.x, dy = next.y - previous.y;
-      const t = Math.max(0, Math.min(1, ((point.x-previous.x)*dx+(point.y-previous.y)*dy)/(dx*dx+dy*dy||1)));
-      return Math.hypot(point.x-previous.x-t*dx, point.y-previous.y-t*dy) < radius;
+    const remaining = strokesRef.current.filter(stroke => !stroke.points.some((next, index) => {
+      const previous = stroke.points[Math.max(0, index - 1)];
+      const dx = next.x - previous.x;
+      const dy = next.y - previous.y;
+      const t = Math.max(
+        0,
+        Math.min(
+          1,
+          ((point.x - previous.x) * dx + (point.y - previous.y) * dy) /
+            (dx * dx + dy * dy || 1)
+        )
+      );
+      return Math.hypot(
+        point.x - (previous.x + t * dx),
+        point.y - (previous.y + t * dy)
+      ) < radius;
     }));
+
     if (remaining.length !== strokesRef.current.length) {
       strokesRef.current = remaining;
       setStrokeCount(remaining.length);
@@ -271,76 +226,169 @@ export function Scratchpad() {
     }
   };
 
-  const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    event.preventDefault();
+  // Canvas에서 시작을 받고, 이동/종료는 window capture 단계에서도 받습니다.
+  // WKWebView에서 pointer capture 대상이 바뀌어도 다음 획이 잠기지 않도록 합니다.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    // 펜 우선 ON: 펜이 먼저 닿았는지와 관계없이 손가락·손바닥 입력 차단.
-    if (penFirstRef.current && event.pointerType === "touch") return;
-    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const finishActivePointer = (
+      pointerId: number,
+      finalPoint?: Point
+    ) => {
+      if (pointerIdRef.current !== pointerId) return;
 
-    // 펜 우선 OFF에서 손가락으로 시작했다면 펜이 들어올 때 펜으로 전환.
-    if (event.pointerType === "pen" && pointerIdRef.current !== null && pointerTypeRef.current === "touch") {
-      const previousPointerId = pointerIdRef.current;
-      if (event.currentTarget.hasPointerCapture(previousPointerId)) {
-        event.currentTarget.releasePointerCapture(previousPointerId);
+      if (modeRef.current !== "eraser" && activeRef.current) {
+        if (finalPoint) {
+          activeRef.current.points.push(finalPoint);
+        }
+        strokesRef.current.push(activeRef.current);
+        activeRef.current = null;
+        setStrokeCount(strokesRef.current.length);
       }
-      activeRef.current = null;
+
+      // 모든 종료 경로에서 반드시 포인터 잠금을 해제합니다.
       pointerIdRef.current = null;
       pointerTypeRef.current = "";
+      setWriting(false);
+      finishInteractionGuard();
       draw();
-    }
+    };
 
-    // 이미 획을 그리고 있으면 두 번째 입력은 무시.
-    if (pointerIdRef.current !== null) return;
-    pointerIdRef.current = event.pointerId;
-    pointerTypeRef.current = event.pointerType;
-    beginHandwritingGuard();
-    setWriting(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
-    if (modeRef.current === "eraser") { eraseAt(getPoint(event)); return; }
-    // 색과 굵기는 획마다 저장하므로 설정 변경 후에도 이전 획을 유지합니다.
-    activeRef.current = { mode: "pen", points: [getPoint(event)], color: penColorRef.current, size: penSizeRef.current };
-    draw();
-  };
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType === "pen") penDetected = true;
+      if (event.pointerType === "mouse" && event.button !== 0) return;
 
-  const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (event.pointerId !== pointerIdRef.current) return;
-    event.preventDefault();
-    if (modeRef.current === "eraser") {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) eraseAt(getPoint(event));
-      return;
-    }
-    if (!activeRef.current) return;
-    activeRef.current.points.push(...getMovePoints(event));
-    draw();
-  };
-  const onPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (event.pointerId !== pointerIdRef.current) return;
-    event.preventDefault();
-    pointerIdRef.current = null;
-    pointerTypeRef.current = "";
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    setWriting(false);
-    endHandwritingGuard();
-    if (modeRef.current === "eraser") return;
-    if (!activeRef.current) return;
-    activeRef.current.points.push(getPoint(event));
-    strokesRef.current.push(activeRef.current);
-    activeRef.current = null;
-    setStrokeCount(strokesRef.current.length);
-    draw();
-  };
-  const onPointerCancel = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (event.pointerId !== pointerIdRef.current) return;
-    pointerIdRef.current = null;
-    pointerTypeRef.current = "";
-    activeRef.current = null;
-    setWriting(false);
-    endHandwritingGuard();
-    draw();
-  };
+      // 펜을 감지한 뒤에는 손가락/손바닥 터치를 무시합니다.
+      if (
+        penFirstRef.current &&
+        penDetected &&
+        event.pointerType === "touch"
+      ) {
+        event.preventDefault();
+        return;
+      }
+
+      // 손바닥이 먼저 닿아 있으면 Apple Pencil 입력이 우선합니다.
+      if (
+        event.pointerType === "pen" &&
+        pointerIdRef.current !== null &&
+        pointerTypeRef.current === "touch"
+      ) {
+        activeRef.current = null;
+        pointerIdRef.current = null;
+        pointerTypeRef.current = "";
+        draw();
+      }
+
+      // 이전 포인터가 종료되지 않은 채 남아 있으면 새 포인터를 막지 않도록 복구합니다.
+      if (pointerIdRef.current !== null) {
+        const oldPointerId = pointerIdRef.current;
+        console.warn("[Scratchpad] stale pointer recovered", oldPointerId);
+        finishActivePointer(oldPointerId);
+      }
+
+      event.preventDefault();
+      pointerIdRef.current = event.pointerId;
+      pointerTypeRef.current = event.pointerType;
+      startInteractionGuard();
+      setWriting(true);
+
+      if (modeRef.current === "eraser") {
+        eraseAt(getPoint(event));
+        return;
+      }
+
+      activeRef.current = {
+        mode: "pen",
+        points: [getPoint(event)],
+        color: penColorRef.current,
+        size: penSizeRef.current,
+      };
+      draw();
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerType === "pen") penDetected = true;
+      if (pointerIdRef.current !== event.pointerId) return;
+      if (event.cancelable) event.preventDefault();
+
+      if (modeRef.current === "eraser") {
+        eraseAt(getPoint(event));
+        return;
+      }
+
+      if (!activeRef.current) return;
+
+      const samples =
+        typeof event.getCoalescedEvents === "function"
+          ? event.getCoalescedEvents()
+          : [];
+      const points = samples.length > 0 ? samples : [event];
+
+      for (const sample of points) {
+        activeRef.current.points.push(getPoint(sample));
+      }
+      draw();
+    };
+
+    // Window capture 단계에서 항상 종료 처리합니다.
+    // 이벤트 target이 canvas여도 건너뛰지 않는 것이 핵심입니다.
+    const onPointerUp = (event: PointerEvent) => {
+      finishActivePointer(event.pointerId, getPoint(event));
+    };
+
+    const onPointerCancel = (event: PointerEvent) => {
+      // 취소된 이벤트의 마지막 좌표는 넣지 않고 받은 획만 보존합니다.
+      finishActivePointer(event.pointerId);
+    };
+
+    const onLostPointerCapture = (event: PointerEvent) => {
+      finishActivePointer(event.pointerId);
+    };
+
+    const onWindowBlur = () => {
+      const activePointerId = pointerIdRef.current;
+      if (activePointerId !== null) {
+        finishActivePointer(activePointerId);
+      }
+    };
+
+    const preventDefaultEvent = (event: Event) => {
+      if (event.cancelable) event.preventDefault();
+    };
+
+    const preventContextMenu = (event: Event) => event.preventDefault();
+    const options: AddEventListenerOptions = {
+      capture: true,
+      passive: false,
+    };
+
+    canvas.addEventListener("pointerdown", onPointerDown, { passive: false });
+    canvas.addEventListener("touchstart", preventDefaultEvent, { passive: false });
+    canvas.addEventListener("click", preventDefaultEvent, { passive: false });
+    canvas.addEventListener("lostpointercapture", onLostPointerCapture);
+    canvas.addEventListener("contextmenu", preventContextMenu);
+
+    // 포인터가 canvas 밖으로 retarget되더라도 move/up/cancel을 놓치지 않습니다.
+    window.addEventListener("pointermove", onPointerMove, options);
+    window.addEventListener("pointerup", onPointerUp, options);
+    window.addEventListener("pointercancel", onPointerCancel, options);
+    window.addEventListener("blur", onWindowBlur);
+
+    return () => {
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("touchstart", preventDefaultEvent);
+      canvas.removeEventListener("click", preventDefaultEvent);
+      canvas.removeEventListener("lostpointercapture", onLostPointerCapture);
+      canvas.removeEventListener("contextmenu", preventContextMenu);
+      window.removeEventListener("pointermove", onPointerMove, true);
+      window.removeEventListener("pointerup", onPointerUp, true);
+      window.removeEventListener("pointercancel", onPointerCancel, true);
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  }, [draw]);
+
   const undo = () => {
     strokesRef.current.pop();
     setStrokeCount(strokesRef.current.length);
@@ -373,8 +421,7 @@ export function Scratchpad() {
 
   return (
     <>
-      {(expanded || writing) && <div className="scratchpad-interaction-backdrop" aria-hidden="true" />}
-      <section ref={padRef} className={`scratchpad panel ${expanded ? "scratchpad-expanded" : ""} ${writing ? "scratchpad-writing" : ""}`} aria-label="자유 필기장" onContextMenu={event => event.preventDefault()}>
+      <section ref={padRef} className={`scratchpad panel ${expanded ? "scratchpad-expanded" : ""} ${writing ? "scratchpad-writing" : ""} ${interactionGuard ? "scratchpad-guarding" : ""}`} aria-label="자유 필기장" onContextMenu={event => event.preventDefault()}>
         <header className="scratchpad-header">
           <div>
             <span className="eyebrow">SCRATCHPAD</span>
@@ -393,6 +440,15 @@ export function Scratchpad() {
             <button className={`scratchpad-tool ${mode === "eraser" ? "active" : ""}`} onClick={() => chooseMode("eraser")} aria-pressed={mode === "eraser"}><Eraser size={15} /> 획 지우개</button>
             <button className="scratchpad-tool" onClick={undo} disabled={!strokeCount}><Undo2 size={15} /> 한 획 취소</button>
             <button type="button" className={`scratchpad-tool scratchpad-pen-first ${penFirst ? "active" : ""}`} onClick={togglePenFirst} aria-pressed={penFirst} title="ON: 펜·마우스만 필기 / OFF: 손가락 필기도 허용">✍ 펜 우선 {penFirst ? "ON" : "OFF"}</button>
+            <button
+              type="button"
+              className={`scratchpad-tool scratchpad-left-handed-toggle ${leftHanded ? "active" : ""}`}
+              onClick={() => setLeftHanded(value => !value)}
+              aria-pressed={leftHanded}
+              title="필기장을 왼쪽에 배치하고 도구를 오른쪽으로 정렬합니다"
+            >
+              ✋ 왼손잡이 {leftHanded ? "ON" : "OFF"}
+            </button>
           </div>
           <div className="scratchpad-tool-row">
             <label className="scratchpad-paper-select">
@@ -446,11 +502,6 @@ export function Scratchpad() {
             ref={canvasRef}
             className="scratchpad-canvas"
             aria-label="쓰기 연습 필기 영역"
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerCancel}
-            onLostPointerCapture={onPointerCancel}
             onContextMenu={(event) => event.preventDefault()}
             onDragStart={(event) => event.preventDefault()}
           />

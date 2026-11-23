@@ -11,6 +11,7 @@ import {
   Heart,
   Layers3,
   ListFilter,
+  PenLine,
   Plus,
   RotateCcw,
   Search,
@@ -49,6 +50,7 @@ function App() {
   const [studyDeckId, setStudyDeckId] = useState(appData.decks[0]?.id ?? "");
   const [flipped, setFlipped] = useState(false);
   const [padResetKey, setPadResetKey] = useState(0);
+  const [showScratchpad, setShowScratchpad] = useState(true);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [sessionSavedSeconds, setSessionSavedSeconds] = useState(0);
   const [studySessionTotal, setStudySessionTotal] = useState(0);
@@ -673,7 +675,7 @@ function App() {
     }
 
     return (
-      <section className="study-page">
+      <section className={`study-page ${!showScratchpad ? "scratchpad-hidden" : ""}`}>
         <div className="study-main-column">
         <div className="study-topline">
           <button className="text-button" onClick={exitStudy}>
@@ -683,7 +685,18 @@ function App() {
             <span className="eyebrow">FOCUS MODE</span>
             <strong>{title}</strong>
           </div>
-          <div className="study-timer-buttons"><span className="study-time"><Clock3 size={15}/>{Math.floor(elapsedSeconds/60)}:{String(elapsedSeconds%60).padStart(2,"0")}</span><button className="button button-outline" onClick={()=>{autoPausedRef.current=false;setTimerRunning(v=>!v);if(!timerRunning)updateProgress(studyScope,p=>({...p,roundStartedAt:p.roundStartedAt??new Date().toISOString()}));}}>{timerRunning?"Ⅱ 일시정지":"▶ 이어서 공부"}</button></div>
+          <div className="study-timer-buttons">
+            <span className="study-time"><Clock3 size={15}/>{Math.floor(elapsedSeconds/60)}:{String(elapsedSeconds%60).padStart(2,"0")}</span>
+            <button className="button button-outline" onClick={()=>{autoPausedRef.current=false;setTimerRunning(v=>!v);if(!timerRunning)updateProgress(studyScope,p=>({...p,roundStartedAt:p.roundStartedAt??new Date().toISOString()}));}}>{timerRunning?"Ⅱ 일시정지":"▶ 이어서 공부"}</button>
+            <button
+              type="button"
+              className={`button ${showScratchpad ? "button-outline" : "button-quiet"}`}
+              onClick={() => setShowScratchpad((value) => !value)}
+              aria-pressed={showScratchpad}
+            >
+              <PenLine size={15} /> {showScratchpad ? "필기장 끄기" : "필기장 켜기"}
+            </button>
+          </div>
         </div>
 
         <div className="study-progress-row"><span>{getProgress(appData.progress,studyScope).round??1}회독 · {passes}차 분류 · 이번 차수 {lapRemaining}개</span>
@@ -779,7 +792,7 @@ function App() {
             <small>뜻</small>{showInlineMeaning ? currentCard.back : "눌러서 보기"}
           </button>
         </div>
-        <Scratchpad key={padResetKey} />
+        {showScratchpad && <Scratchpad key={padResetKey} />}
       </section>
     );
   };
