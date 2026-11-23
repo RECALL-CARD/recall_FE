@@ -16,7 +16,7 @@
   --shadow: 0 12px 36px rgba(24,48,69,0.055);
 }
 
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; background: #f2f7f9; }
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
@@ -206,7 +206,19 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .favorite-button.is-favorite { color: #c17a67; }
 .list-note { color: #96a0a8; text-align: center; font-size: 10px; padding: 10px; }
 
-.study-page { max-width: 790px; margin: 0 auto; }
+.study-page {
+  max-width: 1260px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(300px, 0.92fr);
+  gap: 18px;
+  align-items: start;
+}
+.study-main-column {
+  min-width: 0;
+  max-width: 560px;
+  width: 100%;
+}
 .study-topline { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .study-session-title { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .study-session-title strong { font-size: 13px; }
@@ -224,10 +236,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .flashcard-kicker { color: #8698a5; font-size: 9px; font-weight: 800; letter-spacing: 1.5px; }
 .flashcard-front { font-size: clamp(48px,8vw,76px); font-weight: 600; letter-spacing: 2px; line-height: 1.2; }
 .flashcard-back { font-size: clamp(24px,4vw,38px); font-weight: 700; letter-spacing: -.7px; line-height: 1.4; }
-.flashcard-reading { color: #8a959e; font-size: 14px; }
+.flashcard-reading { color: #4a76c1; font-size: 18px; }
 .flashcard-bottom { letter-spacing: 0; font-weight: 500; }
 .flashcard-bottom span:first-child { display: inline-flex; align-items: center; gap: 5px; }
-.study-card-tools { display: flex; justify-content: center; gap: 8px; margin: 14px 0 18px; }
+.study-card-tools { display: flex; justify-content: center; gap: 8px; margin: 14px 0 18px; flex-wrap: wrap; }
 .study-card-tools .button { font-size: 10px; padding: 8px 12px; }
 .study-card-tools .is-favorite { color: #b76d5e; }
 .study-answer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -414,10 +426,15 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .toast { max-width: calc(100vw - 80px); white-space: normal; text-align: center; }
 }
 
-/* Handwriting scratchpad restored beside the study card */
-.study-page { max-width: 1320px; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(340px, .92fr); gap: 20px; align-items: start; }
-.study-main-column { min-width: 0; }
-.scratchpad { min-width: 0; overflow: hidden; }
+/* Handwriting scratchpad beside the study card */
+.scratchpad {
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+  justify-self: stretch;
+  overflow: hidden;
+}
+
 .scratchpad-header { min-height: 72px; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 15px 17px; border-bottom: 1px solid var(--line); }
 .scratchpad-header h3 { font-size: 15px; margin: 4px 0 0; }
 .scratchpad-header-actions { display: flex; align-items: center; gap: 2px; }
@@ -439,12 +456,16 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .scratchpad-footer { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 6px; border-top: 1px solid var(--line); color: #97a2aa; font-size: 9px; }
 .scratchpad-collapsed { min-height: 65px; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .scratchpad-collapsed span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; }
-.scratchpad-expanded { position: fixed; z-index: 35; inset: 7vh 7vw; display: flex; flex-direction: column; box-shadow: 0 0 0 100vmax rgba(20,36,48,.45), 0 20px 80px rgba(6,25,40,.2); }
-.scratchpad-expanded .scratchpad-paper { height: auto; min-height: 0; flex: 1; }
-@media (max-width: 1120px) {
-  .study-page { grid-template-columns: minmax(0,1fr) minmax(295px,.88fr); gap: 12px; }
-  .scratchpad-tool { font-size: 9px; padding: 6px; }
+.scratchpad-expanded {
+  position: fixed;
+  z-index: 35;
+  inset: 7vh 7vw;
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+  box-shadow: 0 20px 60px rgba(6, 25, 40, 0.14);
 }
+
 @media (max-width: 900px) {
   .study-page { grid-template-columns: 1fr; max-width: 790px; }
   .scratchpad-paper { height: 440px; }
@@ -469,8 +490,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .card-edit-row{display:flex;border-bottom:1px solid #eaf0f4;align-items:center}
 .card-edit-row>.card-row{flex:1;min-width:0;border-bottom:0}
 .card-inline-actions{display:flex;gap:4px;padding:0 10px}
-.study-page{max-width:1250px;display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,.85fr);gap:16px;align-items:start}
-.study-page .study-main-column{min-width:0}
 .study-timer-buttons{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .study-timer-buttons .button{font-size:10px;padding:7px 9px}
 .typing-panel-v2{border:1px solid #cee4f5;background:#f9fcff;border-radius:12px;padding:13px;margin:13px 0}
@@ -494,13 +513,86 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .study-history-panel{margin-top:16px;padding:20px}.study-history-panel h2{font-size:16px}.history-scroll{overflow-x:auto}.study-history-panel table{width:100%;border-collapse:collapse;min-width:600px;font-size:11px}.study-history-panel td,.study-history-panel th{border-bottom:1px solid #e9f0f6;padding:10px;text-align:left}.study-history-panel th{background:#eaf5fd;color:#3b6283}.small-inline-button{background:transparent;color:#5b778d;border:0;font-size:10px;padding:0}.collection-card-items{max-height:160px;overflow:auto;margin-bottom:12px}.collection-card-items>div{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:10px;border-bottom:1px solid #edf1f4;padding:5px}.collection-card-items button{border:none;background:none;color:#8a969f}.collection-card-items span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* 필기장 확대 시 상단에 현재 단어 배너 표시 */
-.study-word-banner{display:none;position:fixed;z-index:36;top:3vh;left:4vw;right:4vw;min-height:11vh;padding:10px 24px;align-items:center;gap:20px;background:#ffffff;border:1px solid #bfdcf3;border-radius:16px;box-shadow:0 10px 40px rgba(6,25,40,.2)}
-.study-word-banner button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:110px;padding:8px 14px;border:1px dashed #bfdcf3;border-radius:12px;background:#f5f9fc;color:#97a3ac;font-size:clamp(14px,2.4vw,20px);text-align:left}
-.study-word-banner button small{font-size:10px;font-weight:800;letter-spacing:.6px;color:#8698a5}
-.study-word-banner button.shown{border-style:solid;background:#e8f4fd;color:#0c3153;font-weight:600}
-.study-word-banner strong{font-size:clamp(26px,5vw,44px);color:#0c3153;font-weight:600;white-space:nowrap}
-.study-page:has(.scratchpad-expanded) .study-word-banner{display:flex}
-.study-page .scratchpad-expanded{inset:16vh 4vw 4vh}
+.study-word-banner {
+  display: none;
+  position: fixed;
+  z-index: 36;
+  top: 3vh;
+  left: 4vw;
+  right: 4vw;
+  min-height: 11vh;
+  padding: 10px 24px;
+  align-items: center;
+  gap: 20px;
+  background-color: #ffffff;
+  color: #0c3153;
+  border: 1px solid #bfdcf3;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(6, 25, 40, 0.14);
+  isolation: isolate;
+  transform: translateZ(0);
+}
+
+.study-word-banner > button:not(.study-word-title) {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 110px;
+  padding: 8px 14px;
+  border: 1px dashed #bfdcf3;
+  border-radius: 12px;
+  background-color: #f5f9fc;
+  color: #627381;
+  font-size: clamp(14px, 2.4vw, 20px);
+  text-align: left;
+}
+
+.study-word-banner > button:not(.study-word-title) small {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  color: #8698a5;
+}
+
+.study-word-banner > button:not(.study-word-title).shown {
+  border-style: solid;
+  background-color: #e8f4fd;
+  color: #0c3153;
+  font-weight: 600;
+}
+
+.study-word-banner strong {
+  font-size: clamp(26px, 5vw, 44px);
+  color: #0c3153;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.study-page:has(.scratchpad-expanded) .study-word-banner {
+  display: flex;
+}
+
+.study-page .scratchpad-expanded {
+  inset: 16vh 4vw 4vh;
+}
+
+/* 배너 버튼 탭 시 생기는 검은 하이라이트·포커스 네모 칸 제거 */
+.study-word-banner,
+.study-word-banner button,
+.study-word-banner button * {
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
+.study-word-banner button:focus,
+.study-word-banner button:focus-visible,
+.study-word-banner button:active {
+  outline: none !important;
+  box-shadow: none !important;
+}
 
 /* ── Sky blue theme · 메인 컬러 #BFDAF7 ── */
 :root{--green:#BFDAF7;--main:#BFDAF7;--main-strong:#8fbdee;--main-ink:#1d4f82}
@@ -516,18 +608,25 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .art-tone-2{background:linear-gradient(125deg,#8ea6e6,#5f79c6)}
 .art-tone-3{background:linear-gradient(125deg,#8aa3bd,#5f7a98)}
 
-/* 필기장: 길게 눌러도 글자 선택/복사/붙여넣기 메뉴를 띄우지 않기 */
-.scratchpad, .scratchpad * {
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
+/* =========================================
+   Scratchpad · 터치 / 선택 / 레이어
+   ========================================= */
+
+.scratchpad,
+.scratchpad *,
+.app-shell .scratchpad,
+.app-shell .scratchpad * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
 }
+
 .scratchpad-canvas {
-  touch-action: none;
-  overscroll-behavior: contain;
-  -webkit-touch-callout: none;
+  touch-action: none !important;
+  -webkit-touch-callout: none !important;
+  overscroll-behavior: none;
 }
-/* 확대 중이거나 필기 중일 때 외부 화면 위에 투명 차단막 */
+
 .scratchpad-interaction-backdrop {
   position: fixed;
   inset: 0;
@@ -536,17 +635,23 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   touch-action: none;
   overscroll-behavior: none;
   background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
 }
-/* 필기장은 차단막 위에서 계속 조작할 수 있음 */
+
 .scratchpad-writing:not(.scratchpad-expanded) {
   position: relative;
   z-index: 35;
 }
+
 .scratchpad-expanded {
   z-index: 35;
 }
 
-/* 필기장 펜 색상 및 굵기 선택 — 기존 스타일은 그대로 유지 */
+/* =========================================
+   Scratchpad · 색상 / 굵기 / 펜 우선
+   ========================================= */
+
 .scratchpad-pen-options {
   display: flex;
   align-items: center;
@@ -556,34 +661,82 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   border-bottom: 1px solid var(--line);
   background: #fff;
 }
+
 .scratchpad-color-picker,
-.scratchpad-size-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 11px; color: #4b6478; }
+.scratchpad-size-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: #4b6478;
+}
+
 .scratchpad-color-swatch {
-  width: 25px; height: 25px; border-radius: 50%;
-  border: 2px solid #fff; outline: 1px solid #cbd5e1;
-  cursor: pointer; flex-shrink: 0;
-}
-.scratchpad-color-swatch.active { outline: 2px solid #2563eb; outline-offset: 2px; }
-.scratchpad-custom-color { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; cursor: pointer; }
-.scratchpad-custom-color input { width: 28px; height: 28px; padding: 0; border: 0; background: transparent; cursor: pointer; }
-.scratchpad-size-picker input[type="range"] { width: 115px; accent-color: #2563eb; touch-action: pan-x; }
-.scratchpad-size-picker strong { min-width: 38px; font-size: 11px; color: #172b4d; font-variant-numeric: tabular-nums; }
-
-/* 필기장 내부를 길게 눌러도 글자 선택과 복사 호출을 방지 */
-.scratchpad,
-.scratchpad :not(input):not(textarea):not(select) {
-  -webkit-user-select: none !important;
-  user-select: none !important;
-  -webkit-touch-callout: none !important;
-}
-.scratchpad-canvas {
-  touch-action: none;
-  -webkit-user-select: none !important;
-  user-select: none !important;
-  -webkit-touch-callout: none !important;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  outline: 1px solid #cbd5e1;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
-/* Inline meaning under the kanji, without flipping the card. */
+.scratchpad-color-swatch.active {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.scratchpad-custom-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.scratchpad-custom-color input {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.scratchpad-size-picker input[type="range"] {
+  width: 115px;
+  accent-color: #2563eb;
+  touch-action: pan-x;
+}
+
+.scratchpad-size-picker strong {
+  min-width: 38px;
+  font-size: 11px;
+  color: #172b4d;
+  font-variant-numeric: tabular-nums;
+}
+
+.scratchpad-pen-first-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scratchpad-pen-first {
+  min-width: 112px;
+  justify-content: center;
+  font-size: 11px;
+}
+
+.scratchpad-pen-first-hint {
+  font-size: 10px;
+  color: #627381;
+}
+
+/* =========================================
+   Study card · 뜻 / 텍스트 선택
+   ========================================= */
+
 .flashcard-inline-meaning {
   display: block;
   color: #1d4f82;
@@ -591,7 +744,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   font-weight: 600;
   white-space: pre-wrap;
 }
-/* The expanded word title is an interactive button, above the handwriting lock. */
+
 .study-word-banner .study-word-title {
   display: flex;
   flex-direction: column;
@@ -605,85 +758,199 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   cursor: pointer;
   text-align: left;
 }
+
 .study-word-banner .study-word-title strong {
   white-space: normal;
 }
+
 .study-word-banner .study-word-inline-meaning {
   color: #1d4f82;
   font-size: clamp(14px, 2vw, 20px);
   font-weight: 600;
   white-space: pre-wrap;
 }
-.study-word-banner { pointer-events: auto; }
 
-/* 필기 영역만 선택 금지. 학습 카드와 한자는 텍스트 선택 가능 */
-.flashcard, .flashcard *,
-.flashcard-front, .flashcard-inline-meaning,
+.study-word-banner {
+  pointer-events: auto;
+}
+
+.app-shell,
+.app-shell * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none;
+}
+
+.flashcard,
+.flashcard *,
+.flashcard-front,
+.flashcard-inline-meaning,
 .study-word-banner .study-word-title,
 .study-word-banner .study-word-title * {
   -webkit-user-select: text;
   user-select: text;
   -webkit-touch-callout: default;
 }
-.scratchpad-pen-first-row { flex-wrap: wrap; gap: 8px; }
-.scratchpad-pen-first { min-width: 112px; justify-content: center; font-size: 11px; }
-.scratchpad-pen-first-hint { font-size: 10px; color: #627381; }
 
-/* 필기장 내부에서만 텍스트 선택 방지 */
-.scratchpad,
-.scratchpad *,
-.scratchpad-paper,
-.scratchpad-placeholder,
-.scratchpad-canvas {
+.app-shell .flashcard-content,
+.app-shell .flashcard-content * {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default;
+}
+
+.app-shell input,
+.app-shell textarea,
+.app-shell [contenteditable="true"] {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default;
+}
+
+/* Apple Pencil 필기 중에도 상단 단어 배너와 카드 보기 버튼은 막지 않습니다. */
+.study-page.scratchpad-handwriting-guard > :not(.scratchpad):not(.study-word-banner) {
+  pointer-events: none !important;
   -webkit-user-select: none !important;
   user-select: none !important;
   -webkit-touch-callout: none !important;
 }
 
-/* 필기 영역의 브라우저 터치 동작 차단 */
-.scratchpad-canvas {
+.study-page.scratchpad-handwriting-guard .study-card-tools,
+.study-page.scratchpad-handwriting-guard .study-card-tools *,
+.study-page.scratchpad-handwriting-guard > .study-word-banner,
+.study-page.scratchpad-handwriting-guard > .study-word-banner * {
+  pointer-events: auto !important;
+}
+
+@media (min-width: 761px) {
+  .study-page {
+    grid-template-columns:
+      minmax(240px, 0.95fr)
+      minmax(300px, 0.92fr) !important;
+    gap: 16px;
+  }
+
+  .study-page > .study-main-column {
+    grid-column: 1;
+    grid-row: 1;
+    max-width: 560px;
+  }
+
+  .study-page > .scratchpad {
+    grid-column: 2;
+    grid-row: 1;
+    max-width: none;
+    justify-self: stretch;
+  }
+
+  /* 왼손잡이: 필기장을 왼쪽으로 이동 */
+  .study-page.scratchpad-left-handed {
+    grid-template-columns:
+      minmax(300px, 0.92fr)
+      minmax(240px, 0.95fr) !important;
+  }
+
+  .study-page.scratchpad-left-handed > .scratchpad {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .study-page.scratchpad-left-handed > .study-main-column {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+/* 화면이 좁아지면 학습 카드가 먼저 줄어듦 */
+@media (min-width: 761px) and (max-width: 1100px) {
+  .study-page {
+    grid-template-columns:
+      minmax(190px, 0.72fr)
+      minmax(300px, 1.28fr) !important;
+    gap: 12px;
+  }
+
+  .study-page.scratchpad-left-handed {
+    grid-template-columns:
+      minmax(300px, 1.28fr)
+      minmax(190px, 0.72fr) !important;
+  }
+}
+
+/* 좁은 세로 화면에서는 위아래 배치 */
+@media (max-width: 760px) {
+  .study-page {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 14px;
+  }
+
+  .study-page > .study-main-column {
+    grid-column: 1;
+    grid-row: 1;
+    max-width: none;
+  }
+
+  .study-page > .scratchpad {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .study-page.scratchpad-left-handed > .scratchpad {
+    grid-row: 1;
+  }
+
+  .study-page.scratchpad-left-handed > .study-main-column {
+    grid-row: 2;
+  }
+}
+
+/* 왼손잡이 모드: 도구를 오른쪽으로 정렬 */
+.study-page.scratchpad-left-handed .scratchpad-tool-row,
+.study-page.scratchpad-left-handed .scratchpad-color-picker,
+.study-page.scratchpad-left-handed .scratchpad-size-picker {
+  justify-content: flex-end;
+}
+
+.study-page.scratchpad-left-handed .scratchpad-pen-options {
+  justify-content: flex-end;
+}
+
+.study-page.scratchpad-left-handed .scratchpad-left-handed-toggle {
+  border-color: #8fbdee;
+}
+
+/* Apple Pencil 필기 중 필기장 외부 입력만 막습니다. 전체 화면 overlay는 사용하지 않습니다. */
+.study-page.scratchpad-handwriting-guard > :not(.scratchpad):not(.study-word-banner) {
+  pointer-events: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+/* 확대 중에는 기존 fixed 위치를 덮어쓰지 않습니다. */
+.study-page.scratchpad-handwriting-guard > .scratchpad {
+  z-index: 36;
+  pointer-events: auto !important;
+}
+
+.study-page.scratchpad-handwriting-guard > .scratchpad:not(.scratchpad-expanded) {
+  position: relative;
+}
+
+.study-page.scratchpad-handwriting-guard .scratchpad-canvas {
+  pointer-events: auto !important;
   touch-action: none !important;
   -webkit-touch-callout: none !important;
-  overscroll-behavior: none;
+  -webkit-user-select: none !important;
+  user-select: none !important;
 }
 
-/* 필기 중 바깥 화면을 터치해도 선택되지 않도록 */
-.scratchpad-interaction-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 34;
-  pointer-events: auto;
-  touch-action: none;
-  -webkit-user-select: none;
-  user-select: none;
-}
-/* App text is nonselectable except for the study card and editable fields. */
-.app-shell, .app-shell * {
-  -webkit-user-select: none !important;
-  user-select: none !important;
-  -webkit-touch-callout: none;
-}
-.app-shell .flashcard-content, .app-shell .flashcard-content * {
-  -webkit-user-select: text !important;
-  user-select: text !important;
-  -webkit-touch-callout: default;
-}
-.app-shell input, .app-shell textarea, .app-shell [contenteditable="true"] {
-  -webkit-user-select: text !important;
-  user-select: text !important;
-  -webkit-touch-callout: default;
-}
-.app-shell .scratchpad, .app-shell .scratchpad * {
-  -webkit-user-select: none !important;
-  user-select: none !important;
-  -webkit-touch-callout: none !important;
+.study-page.scratchpad-hidden {
+  grid-template-columns: minmax(0, 1fr) !important;
+  max-width: 790px;
 }
 
-/* 필기 중에는 카드의 강제 선택 허용 규칙보다 이 규칙이 우선합니다.
-   펜을 뗀 직후 1초간도 유지하여 손바닥의 길게 누르기 선택을 방지합니다. */
-.study-page.scratchpad-handwriting-guard .flashcard-content,
-.study-page.scratchpad-handwriting-guard .flashcard-content * {
-  -webkit-user-select: none !important;
-  user-select: none !important;
-  -webkit-touch-callout: none !important;
+.study-page.scratchpad-hidden > .study-main-column {
+  grid-column: 1 !important;
+  max-width: none;
 }
