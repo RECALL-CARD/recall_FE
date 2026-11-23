@@ -6,7 +6,6 @@ type Point = { x: number; y: number };
 type Stroke = { points: Point[]; mode: "pen" | "eraser"; color: string; size: number };
 const PEN_COLORS = ["#000000", "#2563eb", "#dc2626", "#16a34a", "#e4c3e2ff", "#b6cdeeff"] as const;
 type Paper = "grid" | "lines" | "blank";
-const INTERACTION_GUARD_MS = 2500;
 
 // Apple Pencil이 pen 이벤트로 감지된 뒤 손가락/손바닥 터치를 무시합니다.
 let penDetected = false;
